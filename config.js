@@ -9,12 +9,13 @@
 // Web app -> "SDK setup and configuration" -> Config.
 // These values are NOT secret. Your Firestore security rules protect the data.
 export const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com", // unused (we store images in Firestore) but the SDK expects it
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKeconst firebaseConfig = {
+  apiKey: "AIzaSyC82BhYmL2t2mfL2aJhOjfQWcjoELJoiQ0",
+  authDomain: "visual-messenger.firebaseapp.com",
+  projectId: "visual-messenger",
+  storageBucket: "visual-messenger.firebasestorage.app",
+  messagingSenderId: "889411629535",
+  appId: "1:889411629535:web:09a83c76562b8cb3cbd46a"
 };
 
 // ---- 2. OneSignal -------------------------------------------------------
