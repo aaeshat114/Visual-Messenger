@@ -365,7 +365,7 @@ async function nudge(q, auto) {
     q.targetUids,
     t("push.nudge.title"),
     t("push.nudge.body", { text: q.text }),
-    { questionId: q.id }
+    { questionId: q.id, type: "nudge" }
   );
   if (!result.ok && !auto) toast(t("error.pushFailed"), "error");
 }
@@ -514,7 +514,7 @@ async function sendQuestion() {
       text, allowMultiple: c.allowMultiple, options, targetUids: targets,
     });
     // Push in the background: a failed push must never block or undo the send.
-    push.sendPush(targets, t("push.newQuestion.title"), t("push.newQuestion.body", { text }), { questionId })
+    push.sendPush(targets, t("push.newQuestion.title"), t("push.newQuestion.body", { text }), { questionId, type: "question" })
       .then((result) => { if (!result.ok) toast(t("error.pushFailed"), "error"); });
     toast(t("compose.sent"));
     showScreen("parent");
@@ -927,7 +927,7 @@ async function submitAnswer(q, selectedKeys, text) {
       parentUids(),
       t("push.answer.title"),
       t("push.answer.body", { text: summarize(q.options, selectedKeys, text) }),
-      { questionId: q.id }
+      { questionId: q.id, type: "answer" }
     );
   } catch (err) {
     c.showThanks = false;
