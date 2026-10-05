@@ -19,7 +19,7 @@ export const firebaseConfig = {
 
 // ---- 2. OneSignal -------------------------------------------------------
 // From: OneSignal dashboard -> Your app -> Settings -> Keys & IDs.
-export const ONESIGNAL_APP_ID = "YOUR_ONESIGNAL_APP_ID";
+export const ONESIGNAL_APP_ID = "";
 
 // WARNING: anything in this file is public once it is on GitHub Pages.
 // If USE_WORKER_PROXY is false, this REST key ships to every browser and
@@ -27,7 +27,7 @@ export const ONESIGNAL_APP_ID = "YOUR_ONESIGNAL_APP_ID";
 // That is acceptable for a private two-device family app, but it is the reason
 // the optional Cloudflare Worker (Phase 2) exists: it keeps the key server-side.
 // If you switch to the Worker, set this to "" and remove the key from GitHub.
-export const ONESIGNAL_REST_API_KEY = "YOUR_ONESIGNAL_REST_API_KEY";
+export const ONESIGNAL_REST_API_KEY = "";
 
 // ---- 3. Push delivery mode ---------------------------------------------
 // false = push.js POSTs straight to OneSignal using the REST key above.
