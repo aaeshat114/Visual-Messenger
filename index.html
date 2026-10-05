@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<!--
+  index.html: the single page of the app. Every "screen" is a <section class="screen">
+  that app.js shows or hides with the `hidden` attribute.
+
+  RULES THIS FILE FOLLOWS
+  - No visible text. Elements carry data-i18n="key" (text), data-i18n-placeholder="key"
+    or data-i18n-aria-label="key", and applyTranslations() from i18n.js fills them in.
+  - All paths are relative (no leading "/"), so it works from a GitHub Pages subpath.
+  - No <form> tags. Buttons are type="button" and app.js handles clicks.
+  - app.css must include:  [hidden] { display: none !important; }
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- viewport-fit=cover lets the app use the full screen on phones with notches -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Filled in by applyTranslations() so the title also goes through t() -->
+  <title></title>
+
+  <meta name="theme-color" content="#D9B3FF">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+
+  <!-- Child UI font (Nunito / Quicksand). Falls back to system-ui if offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=Quicksand:wght@600;700&display=swap">
+
+  <link rel="stylesheet" href="app.css">
+</head>
+
+<!-- app.js sets data-role="parent" or "child" on <body> so app.css can switch fonts and sizes -->
+<body>
+
+  <!-- ========== Always-present overlays ========== -->
+
+  <!-- Shown by app.js when a Firestore listener drops -->
+  <div id="conn-pill" class="conn-pill" role="status" aria-live="polite" hidden>
+    <span data-i18n="conn.reconnecting"></span>
+  </div>
+
+  <!-- Toasts (errors, "saved", etc.). app.js appends .toast children here -->
+  <div id="toast-area" class="toast-area" role="status" aria-live="polite"></div>
+
+  <!-- ========== SCREEN: setup needed (config.js still has placeholders) ========== -->
+  <section id="screen-setup" class="screen screen--center" hidden>
+    <div class="panel">
+      <h1 data-i18n="setup.title"></h1>
+      <p data-i18n="setup.body"></p>
+      <p><strong data-i18n="setup.missing"></strong></p>
+      <ul id="setup-missing" class="setup-list"></ul>
+      <p data-i18n="setup.readme"></p>
+    </div>
+  </section>
+
+  <!-- ========== SCREEN: loading (shown at launch until auth + role are known) ========== -->
+  <section id="screen-loading" class="screen screen--center">
+    <p class="loading-text" data-i18n="common.loading"></p>
+  </section>
+
+  <!-- ========== SCREEN: role select ========== -->
+  <section id="screen-role" class="screen screen--role" hidden>
+    <h1 class="role-title" data-i18n="role.title"></h1>
+    <div class="role-buttons">
+      <button type="button" id="btn-role-parent" class="role-btn role-btn--parent" data-i18n="role.parent"></button>
+      <button type="button" id="btn-role-kid" class="role-btn role-btn--kid" data-i18n="role.kid"></button>
+    </div>
+  </section>
+
+  <!-- ========== SCREEN: parent pairing (shows the code) ========== -->
+  <section id="screen-pair-parent" class="screen screen--center" hidden>
+    <div class="panel">
+      <h1 data-i18n="pair.parent.title"></h1>
+      <p id="pair-parent-status" data-i18n="pair.parent.creating"></p>
+      <div id="pair-parent-ready" hidden>
+        <p data-i18n="pair.parent.body"></p>
+        <!-- aria-label gives screen readers a label; the visible text is the code itself -->
+        <div id="pair-code" class="pair-code" data-i18n-aria-label="pair.codeLabel"></div>
+        <div class="row row--center">
+          <button type="button" id="btn-pair-copy" class="btn btn--soft" data-i18n="common.copy"></button>
+          <button type="button" id="btn-pair-continue" class="btn btn--primary" data-i18n="pair.parent.continue"></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== SCREEN: child pairing (types the code) ========== -->
+  <section id="screen-pair-kid" class="screen screen--center screen--kid" hidden>
+    <div class="panel">
+      <h1 data-i18n="pair.kid.title"></h1>
+      <p data-i18n="pair.kid.body"></p>
+      <!-- maxlength matches PAIRING_CODE_LENGTH in config.js. app.js uppercases the input. -->
+      <input id="pair-input" class="pair-input" type="text" maxlength="6"
+             autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
+             data-i18n-placeholder="pair.kid.placeholder" data-i18n-aria-label="pair.codeLabel">
+      <p id="pair-error" class="error-text" role="alert" hidden></p>
+      <div class="row row--center">
+        <button type="button" id="btn-pair-kid-back" class="btn btn--soft" data-i18n="common.back"></button>
+        <button type="button" id="btn-pair-join" class="btn btn--primary" data-i18n="pair.kid.join"></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== SCREEN: parent home ========== -->
+  <section id="screen-parent" class="screen screen--parent" hidden>
+    <header class="topbar">
+      <h1 class="topbar__title" data-i18n="parent.title"></h1>
+      <div class="topbar__actions">
+        <button type="button" id="btn-new-question" class="btn btn--primary" data-i18n="parent.newQuestion"></button>
+        <button type="button" id="btn-open-library" class="btn btn--soft" data-i18n="parent.cardLibrary"></button>
+        <button type="button" id="btn-open-settings" class="btn btn--soft" data-i18n="parent.settings"></button>
+      </div>
+    </header>
+
+    <!-- Install banner: parent device only. app.js un-hides it on beforeinstallprompt. -->
+    <div id="install-banner" class="banner banner--install" hidden>
+      <div class="banner__text">
+        <strong data-i18n="install.title"></strong>
+        <span data-i18n="install.body"></span>
+      </div>
+      <div class="banner__actions">
+        <button type="button" id="btn-install" class="btn btn--primary" data-i18n="install.button"></button>
+        <button type="button" id="btn-install-dismiss" class="btn btn--ghost" data-i18n="common.dismiss"></button>
+      </div>
+    </div>
+
+    <main class="content">
+      <h2 class="section-title" data-i18n="parent.pending"></h2>
+      <div id="pending-list" class="q-list"></div>
+      <p id="pending-empty" class="muted" data-i18n="parent.noPending" hidden></p>
+
+      <h2 class="section-title" data-i18n="parent.answered"></h2>
+      <div id="answered-list" class="q-list"></div>
+      <p id="answered-empty" class="muted" data-i18n="parent.noAnswered" hidden></p>
+    </main>
+  </section>
+
+  <!-- ========== SCREEN: compose ========== -->
+  <section id="screen-compose" class="screen screen--parent" hidden>
+    <header class="topbar">
+      <button type="button" id="btn-compose-back" class="btn btn--soft" data-i18n="common.back"></button>
+      <h1 class="topbar__title" data-i18n="compose.title"></h1>
+    </header>
+
+    <main class="content">
+      <label class="field-label" for="compose-text" data-i18n="compose.questionLabel"></label>
+      <input id="compose-text" class="input input--big" type="text" maxlength="140"
+             autocomplete="off" data-i18n-placeholder="compose.questionPlaceholder">
+
+      <!-- Single / Multiple toggle: two big radio "pills". The <input> is visually hidden by CSS. -->
+      <p class="field-label" id="mode-label" data-i18n="compose.modeLabel"></p>
+      <div class="mode-toggle" role="radiogroup" aria-labelledby="mode-label">
+        <label class="mode-toggle__option">
+          <input type="radio" name="compose-mode" value="single" checked>
+          <span data-i18n="compose.modeSingle"></span>
+        </label>
+        <label class="mode-toggle__option">
+          <input type="radio" name="compose-mode" value="multiple">
+          <span data-i18n="compose.modeMultiple"></span>
+        </label>
+      </div>
+
+      <!-- Selected options as removable chips -->
+      <p class="field-label" id="compose-selected-label"></p>
+      <ul id="compose-chips" class="chips" aria-labelledby="compose-selected-label"></ul>
+
+      <label class="toggle-row">
+        <input id="compose-something-else" type="checkbox">
+        <span data-i18n="compose.somethingElse"></span>
+      </label>
+
+      <!-- Option picker: searches built-in + family cards -->
+      <label class="field-label" for="compose-search" data-i18n="compose.searchLabel"></label>
+      <div class="row">
+        <input id="compose-search" class="input" type="search" autocomplete="off"
+               data-i18n-placeholder="compose.searchPlaceholder">
+        <button type="button" id="btn-create-card" class="btn btn--soft" data-i18n="compose.createCard"></button>
+      </div>
+      <div id="compose-results" class="tile-grid"></div>
+      <p id="compose-no-results" class="muted" data-i18n="compose.noResults" hidden></p>
+
+      <p id="compose-error" class="error-text" role="alert" hidden></p>
+      <button type="button" id="btn-send-question" class="btn btn--primary btn--wide" data-i18n="compose.send"></button>
+    </main>
+  </section>
+
+  <!-- ========== SCREEN: card library ========== -->
+  <section id="screen-library" class="screen screen--parent" hidden>
+    <header class="topbar">
+      <button type="button" id="btn-library-back" class="btn btn--soft" data-i18n="common.back"></button>
+      <h1 class="topbar__title" data-i18n="library.title"></h1>
+      <div class="topbar__actions">
+        <button type="button" id="btn-library-create" class="btn btn--primary" data-i18n="compose.createCard"></button>
+      </div>
+    </header>
+
+    <main class="content">
+      <input id="library-search" class="input" type="search" autocomplete="off"
+             data-i18n-placeholder="library.searchPlaceholder" data-i18n-aria-label="common.search">
+      <!-- Category filter buttons are generated by app.js -->
+      <div id="library-filters" class="filters" role="group"></div>
+      <div id="library-grid" class="tile-grid"></div>
+      <p id="library-empty" class="muted" data-i18n="library.empty" hidden></p>
+    </main>
+  </section>
+
+  <!-- ========== SCREEN: settings ========== -->
+  <section id="screen-settings" class="screen screen--parent" hidden>
+    <header class="topbar">
+      <button type="button" id="btn-settings-back" class="btn btn--soft" data-i18n="common.back"></button>
+      <h1 class="topbar__title" data-i18n="settings.title"></h1>
+    </header>
+
+    <main class="content">
+      <!-- Display name -->
+      <label class="field-label" for="settings-name" data-i18n="settings.displayName"></label>
+      <div class="row">
+        <input id="settings-name" class="input" type="text" maxlength="30" autocomplete="off">
+        <button type="button" id="btn-save-name" class="btn btn--primary" data-i18n="common.save"></button>
+      </div>
+
+      <!-- Notifications -->
+      <h2 class="section-title" data-i18n="settings.notifications"></h2>
+      <!-- Persistent but dismissible: explains how to re-enable after "Block" -->
+      <div id="push-denied-banner" class="banner banner--warn" hidden>
+        <p class="banner__text" data-i18n="settings.notifDeniedBanner"></p>
+        <div class="banner__actions">
+          <button type="button" id="btn-push-banner-dismiss" class="btn btn--ghost" data-i18n="common.dismiss"></button>
+        </div>
+      </div>
+      <p id="settings-notif-status"></p>
+      <!-- Permission is requested ONLY from this button, never on load -->
+      <button type="button" id="btn-enable-push" class="btn btn--primary" data-i18n="settings.notifEnable"></button>
+
+      <!-- Pairing code -->
+      <h2 class="section-title" data-i18n="settings.pairingCode"></h2>
+      <div id="settings-code" class="pair-code pair-code--small" hidden></div>
+      <button type="button" id="btn-toggle-code" class="btn btn--soft" data-i18n="settings.showCode"></button>
+
+      <!-- Sign out -->
+      <h2 class="section-title" data-i18n="settings.signOut"></h2>
+      <button type="button" id="btn-sign-out" class="btn btn--danger" data-i18n="settings.signOut"></button>
+    </main>
+  </section>
+
+  <!-- ========== SCREEN: child home (full screen, no chrome) ========== -->
+  <section id="screen-child" class="screen screen--kid" hidden>
+
+    <!-- State A: a pending question is waiting -->
+    <div id="child-question-view" hidden>
+      <h1 id="child-question" class="kid-question"></h1>
+      <p id="child-hint" class="kid-hint"></p>
+      <div id="child-grid" class="kid-grid"></div>
+      <!-- Only shown in multi-select mode (and when at least one card is picked) -->
+      <button type="button" id="btn-child-done" class="kid-done" data-i18n="child.done" hidden></button>
+    </div>
+
+    <!-- State B: nothing to answer -->
+    <div id="child-waiting" class="kid-center" hidden>
+      <p class="kid-waiting" data-i18n="child.waiting"></p>
+      <h2 class="kid-subtitle" data-i18n="child.yourAnswers"></h2>
+      <ul id="child-history-idle" class="history"></ul>
+    </div>
+
+    <!-- State C: just answered. Confetti canvas sits behind the message. -->
+    <div id="child-thanks" class="kid-center" hidden>
+      <h1 class="kid-thanks" data-i18n="child.thankYou"></h1>
+      <h2 class="kid-subtitle" data-i18n="child.yourAnswers"></h2>
+      <ul id="child-history" class="history"></ul>
+    </div>
+  </section>
+
+  <!-- ========== SCREEN: child "Something else" text box ========== -->
+  <section id="screen-child-text" class="screen screen--kid" hidden>
+    <h1 class="kid-question" data-i18n="child.somethingElseTitle"></h1>
+    <!-- 32px font set in app.css -->
+    <textarea id="child-textarea" class="kid-textarea" maxlength="300" data-i18n-placeholder="child.typeHere"></textarea>
+    <p id="child-text-error" class="error-text" role="alert" hidden></p>
+    <div class="kid-actions">
+      <button type="button" id="btn-child-text-back" class="kid-back" data-i18n="child.back"></button>
+      <button type="button" id="btn-child-text-send" class="kid-send" data-i18n="child.send"></button>
+    </div>
+  </section>
+
+  <!-- Full-screen confetti canvas. pointer-events:none in CSS so it never blocks taps. -->
+  <canvas id="confetti" class="confetti" aria-hidden="true" hidden></canvas>
+
+  <!-- ========== Create / edit card sheet ========== -->
+  <dialog id="card-sheet" class="sheet" aria-labelledby="card-sheet-title">
+    <div class="sheet__body">
+      <h2 id="card-sheet-title"></h2>
+
+      <label class="field-label" for="card-label" data-i18n="cardSheet.label"></label>
+      <input id="card-label" class="input" type="text" maxlength="40" autocomplete="off"
+             data-i18n-placeholder="cardSheet.labelPlaceholder">
+
+      <p class="field-label" data-i18n="cardSheet.emoji"></p>
+      <!-- Preview of the currently chosen emoji / photo -->
+      <div id="card-preview" class="card-preview" aria-live="polite"></div>
+      <!-- Emoji buttons are generated by app.js -->
+      <div id="emoji-grid" class="emoji-grid"></div>
+
+      <p class="field-label" data-i18n="cardSheet.photo"></p>
+      <input id="card-photo" type="file" accept="image/*">
+      <button type="button" id="btn-card-photo-remove" class="btn btn--ghost" data-i18n="cardSheet.photoRemove" hidden></button>
+
+      <label class="field-label" for="card-keywords" data-i18n="cardSheet.keywords"></label>
+      <input id="card-keywords" class="input" type="text" autocomplete="off">
+      <p class="muted" data-i18n="cardSheet.keywordsHelp"></p>
+
+      <label class="field-label" for="card-category" data-i18n="cardSheet.category"></label>
+      <!-- Options generated by app.js from BUILTIN_CATEGORIES plus "custom" -->
+      <select id="card-category" class="input"></select>
+
+      <p id="card-sheet-error" class="error-text" role="alert" hidden></p>
+
+      <div class="row row--end">
+        <button type="button" id="btn-card-cancel" class="btn btn--soft" data-i18n="common.cancel"></button>
+        <button type="button" id="btn-card-save" class="btn btn--primary" data-i18n="common.save"></button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ====================================================================
+       TEMPLATES: app.js clones these with template.content.cloneNode(true),
+       fills them in, then calls applyTranslations(clone) for data-i18n bits.
+       ==================================================================== -->
+
+  <!-- Parent home: one question card -->
+  <template id="tpl-question">
+    <article class="q-card">
+      <header class="q-card__head">
+        <h3 class="q-card__text"></h3>
+        <span class="badge q-card__status"></span>
+      </header>
+      <p class="q-card__mode muted"></p>
+      <ul class="q-card__options"></ul>
+      <p class="q-card__answer" hidden></p>
+      <p class="q-card__nudges muted" hidden></p>
+      <div class="q-card__actions">
+        <button type="button" class="btn btn--primary js-nudge" data-i18n="parent.nudge" hidden></button>
+        <button type="button" class="btn btn--soft js-cancel" data-i18n="parent.cancelQuestion" hidden></button>
+        <button type="button" class="btn btn--soft js-duplicate" data-i18n="parent.duplicate" hidden></button>
+      </div>
+    </article>
+  </template>
+
+  <!-- A small option thumbnail inside a question card -->
+  <template id="tpl-thumb">
+    <li class="thumb">
+      <span class="thumb__visual"></span>
+      <span class="thumb__label"></span>
+    </li>
+  </template>
+
+  <!-- Compose: a search-result tile (tap to add) -->
+  <template id="tpl-tile">
+    <button type="button" class="tile">
+      <span class="tile__visual"></span>
+      <span class="tile__label"></span>
+    </button>
+  </template>
+
+  <!-- Compose: a removable chip for a chosen option -->
+  <template id="tpl-chip">
+    <li class="chip">
+      <span class="chip__visual"></span>
+      <span class="chip__label"></span>
+      <button type="button" class="chip__remove">✕</button>
+    </li>
+  </template>
+
+  <!-- Card Library: a card with its actions -->
+  <template id="tpl-lib-card">
+    <article class="tile tile--lib">
+      <span class="tile__visual"></span>
+      <span class="tile__label"></span>
+      <span class="badge tile__badge"></span>
+      <div class="tile__actions">
+        <button type="button" class="btn btn--soft js-edit" data-i18n="common.edit" hidden></button>
+        <button type="button" class="btn btn--danger js-delete" data-i18n="common.delete" hidden></button>
+        <button type="button" class="btn btn--soft js-duplicate" data-i18n="library.duplicateToMine" hidden></button>
+      </div>
+    </article>
+  </template>
+
+  <!-- Child: one big answer card (background colour cycles through the palette via JS/CSS) -->
+  <template id="tpl-kid-card">
+    <button type="button" class="kid-card">
+      <span class="kid-card__visual"></span>
+      <span class="kid-card__label"></span>
+    </button>
+  </template>
+
+  <!-- Child: one line in "Your answers" -->
+  <template id="tpl-history-item">
+    <li class="history-item">
+      <p class="history-item__q"></p>
+      <p class="history-item__a"></p>
+    </li>
+  </template>
+
+  <!-- Loaded last. type="module" means it is deferred automatically and uses strict mode. -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
