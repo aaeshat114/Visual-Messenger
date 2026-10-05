@@ -272,9 +272,6 @@ function startParent() {
     if (!$("screen-library").hidden) renderLibrary();
   }));
   updateInstallBanner();
-
-  // Phase 1 auto-nudge: only runs while this app is open.
-  nudgeTimer = setInterval(autoNudge, NUDGE_INTERVAL_MS);
 }
 
 function renderParentHome() {
