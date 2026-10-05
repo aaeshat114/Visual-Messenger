@@ -1,0 +1,29 @@
+{
+  "id": ".",
+  "name": "Visual Messenger",
+  "short_name": "Messenger",
+  "description": "Send picture questions to your child and get their answers.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#D9B3FF",
+  "background_color": "#FFFDF9",
+  "categories": ["kids", "family", "lifestyle"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
