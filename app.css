@@ -1,0 +1,539 @@
+/* app.css
+   ---------------------------------------------------------------------------
+   Hand-written CSS. No framework, no build step.
+   Sections: 1 tokens, 2 base, 3 shared parts, 4 parent UI, 5 child UI,
+             6 sheet (dialog), 7 overlays (toasts, pill, confetti), 8 motion.
+
+   JS HOOKS (class or attribute names app.js must set):
+     .is-selected   on .kid-card and .tile when chosen
+     aria-pressed="true" on filter buttons (.filter-btn) in the library
+     .emoji-btn / .emoji-btn.is-selected   emoji grid buttons in the card sheet
+     .toast / .toast--error   children app.js appends to #toast-area
+     body[data-role="parent" | "child"]
+*/
+
+/* ========== 1. Design tokens ========== */
+:root {
+  /* Palette from the spec */
+  --c-red: #FFB3BA;
+  --c-orange: #FFD5B3;
+  --c-yellow: #FFF5B3;
+  --c-green: #B3E6C4;
+  --c-blue: #B3D9FF;
+  --c-purple: #D9B3FF;
+  --c-pink: #FFB3E6;
+  --c-ink: #3D3A4E;
+  --c-paper: #FFFDF9;
+
+  /* Extra neutrals derived from the palette (kept here so nothing is hard-coded below) */
+  --c-ink-soft: #6B6880;            /* secondary text */
+  --c-line: #EDE8F3;                /* hairline borders */
+  --c-danger: #E26A78;              /* a deeper red for destructive actions */
+  --c-focus: #8B6CD6;               /* focus ring: a darker purple so it is visible on pastels */
+
+  --radius: 24px;
+  --radius-sm: 16px;
+  --shadow: 0 6px 18px rgba(61, 58, 78, 0.12);
+  --shadow-sm: 0 2px 8px rgba(61, 58, 78, 0.10);
+
+  --font-parent: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-child: "Nunito", "Quicksand", system-ui, sans-serif;
+
+  --tap-child: 88px;                /* minimum child tap target */
+  --tap-parent: 44px;
+
+  --t-fast: 150ms;
+  --t-med: 250ms;
+}
+
+/* ========== 2. Base ========== */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* The HTML `hidden` attribute must always win over any display rule below. */
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: var(--font-parent);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--c-ink);
+  background: var(--c-paper);
+  /* Stops the "pull to refresh" bounce from firing mid-tap on the child's screen */
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+
+/* Visible keyboard/switch focus everywhere */
+:focus-visible {
+  outline: 3px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+/* A screen is one full-page section; app.js shows exactly one at a time */
+.screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* env() keeps content clear of phone notches (viewport-fit=cover in index.html) */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.screen--center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.muted { color: var(--c-ink-soft); font-size: 14px; }
+.error-text { color: #B23A48; font-weight: 600; margin: 8px 0; }
+.loading-text { font-size: 20px; color: var(--c-ink-soft); }
+
+/* Centered white card used by setup + parent pairing + kid pairing */
+.panel {
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 28px 24px;
+  text-align: center;
+}
+.panel h1 { font-size: 26px; margin-bottom: 12px; }
+.panel p { margin-bottom: 12px; }
+.setup-list { text-align: left; margin: 0 0 16px 18px; list-style: disc; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; }
+
+/* ========== 3. Shared parts ========== */
+
+/* Rows of controls */
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row--center { justify-content: center; margin-top: 16px; }
+.row--end { justify-content: flex-end; margin-top: 20px; }
+.row > .input { flex: 1 1 200px; }
+
+/* Buttons */
+.btn {
+  min-height: var(--tap-parent);
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 999px;                 /* pill shape: no sharp edges */
+  font-weight: 600;
+  background: var(--c-line);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t-fast) ease, box-shadow var(--t-fast) ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--primary { background: var(--c-purple); }
+.btn--soft { background: var(--c-blue); }
+.btn--ghost { background: transparent; box-shadow: none; }
+.btn--danger { background: var(--c-red); }
+.btn--wide { width: 100%; min-height: 56px; font-size: 18px; margin-top: 16px; }
+
+/* Text inputs */
+.input {
+  width: 100%;
+  min-height: var(--tap-parent);
+  padding: 10px 16px;
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.input:focus { border-color: var(--c-purple); outline: none; box-shadow: 0 0 0 3px rgba(217, 179, 255, 0.5); }
+.input--big { font-size: 20px; min-height: 56px; }
+.field-label { display: block; font-weight: 600; margin: 20px 0 8px; }
+
+/* Small status label */
+.badge {
+  display: inline-block;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--c-yellow);
+}
+.badge.is-answered { background: var(--c-green); }
+.badge.is-cancelled { background: var(--c-line); color: var(--c-ink-soft); }
+
+/* Banners (install prompt, push-denied explanation) */
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin: 12px 16px 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--c-yellow);
+}
+.banner--install { background: var(--c-green); }
+.banner--warn { margin: 12px 0; background: var(--c-orange); }
+.banner__text { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; }
+.banner__actions { display: flex; gap: 8px; }
+
+/* ========== 4. Parent UI ========== */
+.screen--parent { font-family: var(--font-parent); }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: rgba(255, 253, 249, 0.92);
+  backdrop-filter: blur(6px);
+  border-bottom: 3px solid transparent;
+  /* thin pastel rainbow stripe under the header */
+  border-image: linear-gradient(90deg, var(--c-red), var(--c-orange), var(--c-yellow), var(--c-green), var(--c-blue), var(--c-purple)) 1;
+}
+.topbar__title { font-size: 20px; flex: 1 1 auto; }
+.topbar__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.content { max-width: 720px; margin: 0 auto; padding: 16px; }
+.section-title { font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-ink-soft); margin: 24px 0 12px; }
+
+/* Question cards on Parent Home */
+.q-list { display: grid; gap: 12px; }
+.q-card {
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+  border-left: 8px solid var(--c-yellow);   /* colour-codes pending vs answered */
+}
+.q-card.is-answered { border-left-color: var(--c-green); }
+.q-card.is-cancelled { border-left-color: var(--c-line); opacity: 0.75; }
+.q-card__head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.q-card__text { font-size: 18px; }
+.q-card__options { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.q-card__answer { font-weight: 600; margin-top: 4px; }
+.q-card__actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Option thumbnail (small): emoji or photo, plus label */
+.thumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
+  border-radius: 999px;
+  background: var(--c-paper);
+  border: 2px solid var(--c-line);
+}
+.thumb.is-chosen { background: var(--c-green); border-color: var(--c-green); font-weight: 700; }
+.thumb__visual { font-size: 22px; line-height: 1; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; }
+.thumb__visual img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.thumb__label { font-size: 14px; }
+
+/* Single / Multiple toggle: big, obvious. The radio input is visually hidden, the span is the pill. */
+.mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mode-toggle__option { position: relative; display: block; }
+.mode-toggle__option input {
+  position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer;
+}
+.mode-toggle__option span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 64px;
+  border-radius: var(--radius);
+  border: 3px solid var(--c-line);
+  background: #fff;
+  font-size: 18px; font-weight: 700;
+  transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+.mode-toggle__option input:checked + span { background: var(--c-purple); border-color: var(--c-focus); }
+.mode-toggle__option input:focus-visible + span { outline: 3px solid var(--c-focus); outline-offset: 2px; }
+
+.toggle-row { display: flex; align-items: center; gap: 12px; min-height: var(--tap-parent); margin-top: 16px; font-weight: 600; }
+.toggle-row input { width: 24px; height: 24px; accent-color: var(--c-focus); }
+
+/* Selected-option chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: var(--c-blue);
+}
+.chip__visual { font-size: 20px; }
+.chip__visual img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+.chip__remove {
+  width: 32px; height: 32px;           /* a little small, but sits beside a larger chip */
+  border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Search results + Card Library grid */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  min-height: 100px;
+  padding: 10px 6px;
+  border: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+  transition: transform var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+button.tile:active { transform: scale(0.96); }
+.tile.is-selected { border-color: var(--c-focus); background: var(--c-purple); }
+.tile__visual { font-size: 36px; line-height: 1; }
+.tile__visual img { width: 48px; height: 48px; border-radius: var(--radius-sm); object-fit: cover; }
+.tile__label { font-size: 14px; font-weight: 600; word-break: break-word; }
+
+/* Library tiles are cards with actions underneath, so give them more room */
+.tile--lib { align-items: stretch; text-align: center; padding: 12px; }
+.tile--lib .tile__visual { align-self: center; }
+.tile--lib .tile__badge { align-self: center; background: var(--c-line); }
+.tile__actions { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.tile__actions .btn { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+
+/* Library category filter buttons (generated by app.js) */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.filter-btn {
+  min-height: 36px; padding: 4px 14px;
+  border: 2px solid var(--c-line); border-radius: 999px;
+  background: #fff; font-weight: 600; font-size: 14px;
+}
+.filter-btn[aria-pressed="true"] { background: var(--c-purple); border-color: var(--c-focus); }
+
+/* Pairing code: big, spaced letters */
+.pair-code {
+  display: inline-block;
+  margin: 12px auto 16px;
+  padding: 12px 24px;
+  border-radius: var(--radius);
+  background: var(--c-yellow);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: clamp(40px, 14vw, 72px);
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  padding-left: calc(24px + 0.15em);   /* balances the trailing letter-spacing */
+  user-select: all;                    /* one tap selects the whole code */
+}
+.pair-code--small { font-size: 32px; }
+
+/* ========== 5. Child UI ========== */
+.screen--kid {
+  font-family: var(--font-child);
+  background: linear-gradient(160deg, var(--c-red) 0%, var(--c-orange) 20%, var(--c-yellow) 40%, var(--c-green) 60%, var(--c-blue) 80%, var(--c-purple) 100%);
+  background-attachment: fixed;
+  padding: 24px 16px 140px;            /* bottom room so the fixed Done button never covers cards */
+}
+/* The kid pairing screen is also .screen--center, so keep it centred without the extra bottom padding */
+.screen--kid.screen--center { padding-bottom: 24px; }
+
+/* Role select */
+.screen--role {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px;
+  padding: 24px;
+  font-family: var(--font-child);
+  background: linear-gradient(160deg, var(--c-red) 0%, var(--c-orange) 20%, var(--c-yellow) 40%, var(--c-green) 60%, var(--c-blue) 80%, var(--c-purple) 100%);
+}
+.role-title { font-size: clamp(28px, 6vw, 40px); text-align: center; }
+.role-buttons { display: flex; flex-direction: column; gap: 24px; width: 100%; max-width: 560px; }
+.role-btn {
+  min-height: 160px;
+  border: 0;
+  border-radius: 40px;
+  background: var(--c-paper);
+  box-shadow: var(--shadow);
+  font-family: inherit;
+  font-size: clamp(30px, 8vw, 48px);
+  font-weight: 800;
+  transition: transform var(--t-med) ease;
+}
+.role-btn:active { transform: scale(0.97); }
+.role-btn--parent { border-bottom: 12px solid var(--c-blue); }
+.role-btn--kid { border-bottom: 12px solid var(--c-pink); }
+@media (min-width: 720px) {
+  .role-buttons { flex-direction: row; max-width: 900px; }
+  .role-btn { flex: 1; min-height: 240px; }
+}
+
+/* Kid pairing input */
+.pair-input {
+  width: 100%;
+  min-height: var(--tap-child);
+  padding: 12px 16px;
+  border: 4px solid var(--c-purple);
+  border-radius: var(--radius);
+  font-family: var(--font-child);
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-align: center;
+  text-transform: uppercase;
+  background: #fff;
+}
+.pair-input:focus { outline: none; border-color: var(--c-focus); }
+
+/* Kid question + hint */
+.kid-question {
+  font-size: clamp(32px, 7vw, 48px);      /* at least 32px per spec */
+  font-weight: 800;
+  text-align: center;
+  margin: 8px auto 8px;
+  max-width: 900px;
+}
+.kid-hint { text-align: center; font-size: 20px; font-weight: 700; margin-bottom: 20px; color: var(--c-ink); }
+
+/* Responsive grid of big cards */
+.kid-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.kid-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 180px;                       /* spec says min 140; 180 feels right on a tablet */
+  min-width: var(--tap-child);
+  padding: 16px 12px;
+  border: 8px solid transparent;           /* thick border reserved so toggling doesn't shift layout */
+  border-radius: var(--radius);
+  background: var(--c-pink);
+  box-shadow: var(--shadow);
+  font-family: var(--font-child);
+  transition: transform var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+.kid-card:active { transform: scale(0.95); }
+/* Backgrounds cycle through the pastel palette by position (6 colours) */
+.kid-card:nth-child(6n+1) { background: var(--c-red); }
+.kid-card:nth-child(6n+2) { background: var(--c-orange); }
+.kid-card:nth-child(6n+3) { background: var(--c-yellow); }
+.kid-card:nth-child(6n+4) { background: var(--c-green); }
+.kid-card:nth-child(6n+5) { background: var(--c-blue); }
+.kid-card:nth-child(6n+6) { background: var(--c-purple); }
+/* Selected (multi-select): thick ink border plus a tick badge */
+.kid-card.is-selected { border-color: var(--c-ink); position: relative; transform: scale(1.03); }
+.kid-card.is-selected::after {
+  content: "✓";
+  position: absolute; top: -10px; right: -10px;
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--c-ink); color: #fff;
+  font-size: 26px; font-weight: 800;
+}
+.kid-card__visual { font-size: 72px; line-height: 1; }
+.kid-card__visual img { width: 96px; height: 96px; border-radius: var(--radius-sm); object-fit: cover; }
+.kid-card__label { font-size: 24px; font-weight: 800; text-align: center; word-break: break-word; }   /* 20px min per spec */
+
+/* Done button: pinned to the bottom, giant */
+.kid-done {
+  position: fixed;
+  left: 16px; right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  max-width: 720px; margin: 0 auto;
+  min-height: 96px;
+  border: 0; border-radius: var(--radius);
+  background: var(--c-ink); color: #fff;
+  font-family: var(--font-child);
+  font-size: 36px; font-weight: 800;
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.kid-done:active { transform: scale(0.97); }
+
+/* Waiting + thank-you states */
+.kid-center { max-width: 700px; margin: 0 auto; text-align: center; padding-top: 8vh; position: relative; z-index: 1; }
+.kid-waiting { font-size: 32px; font-weight: 800; margin-bottom: 32px; }
+.kid-thanks { font-size: clamp(48px, 12vw, 96px); font-weight: 800; margin-bottom: 24px; }
+.kid-subtitle { font-size: 24px; font-weight: 800; margin: 24px 0 12px; }
+
+/* "Your answers" history */
+.history { display: grid; gap: 12px; text-align: left; }
+.history-item { background: rgba(255, 253, 249, 0.9); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); }
+.history-item__q { font-size: 20px; font-weight: 800; }
+.history-item__a { font-size: 20px; margin-top: 4px; }
+
+/* "Something else" screen */
+.kid-textarea {
+  display: block;
+  width: 100%; max-width: 900px;
+  min-height: 40vh;
+  margin: 16px auto;
+  padding: 20px;
+  border: 6px solid var(--c-purple);
+  border-radius: var(--radius);
+  background: #fff;
+  font-family: var(--font-child);
+  font-size: 32px;                         /* 32px per spec */
+  line-height: 1.3;
+  resize: none;
+}
+.kid-textarea:focus { outline: none; border-color: var(--c-focus); }
+.kid-actions { display: flex; gap: 16px; max-width: 900px; margin: 0 auto; }
+.kid-send, .kid-back {
+  min-height: 96px;
+  border: 0; border-radius: var(--radius);
+  font-family: var(--font-child);
+  font-size: 32px; font-weight: 800;
+  box-shadow: var(--shadow);
+}
+.kid-send { flex: 2; background: var(--c-green); }
+.kid-back { flex: 1; background: var(--c-paper); }
+
+/* ========== 6. Create / edit card sheet (<dialog>) ========== */
+.sheet {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--c-ink);
+  background: var(--c-paper);
+  overflow: hidden;
+}
+.sheet::backdrop { background: rgba(61, 58, 78, 0.45); }
+.sheet__body { max-height: calc(100dvh - 24px); overflow-y: auto; padding: 20px; }
+.sheet__body h2 { font-size: 20px; }
+.card-preview {
+  display: flex; align-items: center; justify-content: center;
+  width: 96px; height: 96px; margin-bottom: 12px;
+  border-radius: var(--radius); background: var(--c-yellow);
+  font-size: 56px;
+}
+.card-preview img { width: 100%; height: 100%; border-radius: var(--radius); object-fit: cover; }
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 180px; overflow-y: auto;
+  padding: 8px; border: 2px solid var(--c-line); border-radius: var(--radius-sm); background: #fff;
+}
+.emoji-btn {
+  min-height: 44px; border: 3px solid transparent; border-radius: 12px;
+  background: transparent; font-size: 26px; line-height: 1;
+}
+.emoji-btn.is-selected { border-color: var(--c-focus); background: var(--c-purple); }
+
+/* ========== 7. Overlays ========== */
+.toast-area {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 100;
+  display: flex; flex-direction: column; align-items: cent
