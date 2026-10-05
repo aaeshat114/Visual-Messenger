@@ -32,10 +32,10 @@ export const ONESIGNAL_REST_API_KEY = "YOUR_ONESIGNAL_REST_API_KEY";
 // ---- 3. Push delivery mode ---------------------------------------------
 // false = push.js POSTs straight to OneSignal using the REST key above.
 // true  = push.js POSTs to WORKER_URL, and the Worker adds the key.
-export const USE_WORKER_PROXY = false;
+export const USE_WORKER_PROXY = true;
 
 // Full URL of your deployed Cloudflare Worker (only used when the flag above is true).
-export const WORKER_URL = "https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev";
+export const WORKER_URL = "htpps://visual-messenger.ludmila-tauschova.workers.dev";
 
 // Direct OneSignal endpoint (only used when USE_WORKER_PROXY is false).
 export const ONESIGNAL_API_URL = "https://onesignal.com/api/v1/notifications";
