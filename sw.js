@@ -6,19 +6,24 @@
 //   1. Precache the app files on install, so the app opens instantly and offline.
 //   2. Serve those files cache-first. Firestore, OneSignal and every other
 //      cross-origin request are left completely alone (never cached).
-//   3. Focus or open the app when a notification is tapped.
-//   4. Run OneSignal's own worker code, because a browser allows only ONE service
-//      worker per scope and OneSignal needs to receive push messages in it.
+//   3. Never touch OneSignal's own worker files (OneSignalSDKWorker.js etc.):
+//      they are downloaded from OneSignal, live in the repo root, and must be
+//      fetched fresh from the network every time. They are NOT in APP_SHELL and
+//      the fetch handler skips them.
+//   4. Focus or open the app when a notification is tapped.
+//   5. Load OneSignal's push-handling code, because a browser allows only ONE
+//      service worker per scope and OneSignal needs to receive push messages in it.
 //
 // !!! BUMP CACHE_VERSION ON EVERY CHANGE to any file in APP_SHELL below. !!!
 // Cache-first means that without a new version, devices keep serving old copies.
 // ---------------------------------------------------------------------------
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = "vm-shell-" + CACHE_VERSION;
 
 // Paths are relative to THIS file, so they resolve correctly from any GitHub
 // Pages subpath (user.github.io/repo/ or the domain root).
+// OneSignal's worker files are deliberately NOT listed here.
 const APP_SHELL = [
   "./",
   "index.html",
@@ -33,12 +38,15 @@ const APP_SHELL = [
   "icon.svg",
 ];
 
+// Any file whose name starts with "OneSignalSDK" is OneSignal's, e.g.
+// OneSignalSDKWorker.js or OneSignalSDKUpdaterWorker.js. Matching on the prefix
+// means we also stay out of the way if OneSignal adds or renames one.
+const ONESIGNAL_FILE = /\/OneSignalSDK[^/]*$/i;
+
 // ---- OneSignal ----
 // Gives this worker OneSignal's push handling. Wrapped in try/catch because
 // importScripts throws if the CDN can't be reached, and an uncaught error here
 // would stop the whole worker from starting (and the app shell from caching).
-// OneSignalSDKWorker.js does the reverse: it imports this file. Either one
-// can therefore be the active worker and everything still works.
 try {
   importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
 } catch (err) {
@@ -89,6 +97,10 @@ self.addEventListener("fetch", (event) => {
   // never cached: Firestore (firestore.googleapis.com), Firebase Auth, the Firebase and
   // OneSignal SDK scripts, OneSignal's API, Google Fonts.
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
+
+  // Also hands-off: OneSignal's worker files in our own folder. If we cached a copy,
+  // OneSignal could be stuck running an outdated worker after you re-download it.
+  if (ONESIGNAL_FILE.test(url.pathname)) return;
 
   event.respondWith(cacheFirst(request));
 });
