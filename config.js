@@ -51,7 +51,7 @@ export const BASE_PATH = new URL("./", import.meta.url).pathname;
 // Service worker scope and file locations, derived from BASE_PATH.
 export const SW_SCOPE = BASE_PATH;                             // e.g. "/repo/"
 export const SW_URL = BASE_PATH + "sw.js";                     // our app-shell service worker
-export const ONESIGNAL_WORKER_PATH = SW_URL;
+export const ONESIGNAL_WORKER_PATH = SW_URL.replace(/^\//, ""); // OneSignal wants no leading slash
 
 // ---- 5. App behaviour ---------------------------------------------------
 export const DEFAULT_LOCALE = "en";
