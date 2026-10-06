@@ -87,6 +87,7 @@ export function initPush(role) {
   if (!initPromise) {
     initPromise = doInit(role).catch((err) => {
       console.warn("Push setup failed:", err);
+      alert("DEBUG push setup failed: " + (err && err.message ? err.message : err));
       initPromise = null;                        // allow a retry
       return { ok: false, error: err };
     });
