@@ -18,7 +18,7 @@
 // Cache-first means that without a new version, devices keep serving old copies.
 // ---------------------------------------------------------------------------
 
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const CACHE_NAME = "vm-shell-" + CACHE_VERSION;
 
 // Paths are relative to THIS file, so they resolve correctly from any GitHub
@@ -36,6 +36,8 @@ const APP_SHELL = [
   "push.js",
   "manifest.webmanifest",
   "icon.svg",
+  "icon-192.png",
+  "icon-512.png",
 ];
 
 // Any file whose name starts with "OneSignalSDK" is OneSignal's, e.g.
