@@ -124,6 +124,16 @@ async function doInit(role) {
     if (role) OneSignal.User.addTag("role", role);
   }), 20000, "OneSignal init");
 
+    // If Chrome already allowed notifications but OneSignal never created a subscription
+  // (for example it failed before the Site URL was fixed), subscribe now.
+  // No popup appears, because permission was already granted.
+  if (Notification.permission === "granted" && oneSignal && !oneSignal.User.PushSubscription.id) {
+    try {
+      await oneSignal.User.PushSubscription.optIn();
+    } catch (err) {
+      console.warn("optIn failed:", err);
+    }
+  }
   // 3) If permission was already granted in an earlier session, make sure Firestore has the current ID.
   await syncMember();
   return { ok: true };
