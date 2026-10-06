@@ -9,7 +9,6 @@
 // Web app -> "SDK setup and configuration" -> Config.
 // These values are NOT secret. Your Firestore security rules protect the data.
 export const firebaseConfig = {
-  apiKeconst firebaseConfig = {
   apiKey: "AIzaSyC82BhYmL2t2mfL2aJhOjfQWcjoELJoiQ0",
   authDomain: "visual-messenger.firebaseapp.com",
   projectId: "visual-messenger",
