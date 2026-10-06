@@ -247,10 +247,10 @@ function enterHome(familyId, role) {
   push.initPush(role).then(() => { if (role === "child") updateChildNotifButton(); });
   fb.touchLastSeen(familyId);
 
-  stops.push(fb.subscribeFamily(familyId, (items) => {
-    state.family = items[0] || null;
-    if (!$("screen-settings").hidden) updateSettingsCode();
-  }));
+     stops.push(fb.subscribeFamily(familyId, (family) => {
+     state.family = family || null;
+     if (!$("screen-settings").hidden) updateSettingsCode();
+   }));
 
   if (role === "parent") startParent();
   else startChild();
