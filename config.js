@@ -19,7 +19,7 @@ export const firebaseConfig = {
 
 // ---- 2. OneSignal -------------------------------------------------------
 // From: OneSignal dashboard -> Your app -> Settings -> Keys & IDs.
-export const ONESIGNAL_APP_ID = "";
+export const ONESIGNAL_APP_ID = "e16ca8d8-e40f-457d-9b33-16ac8ed52c2b";
 
 // WARNING: anything in this file is public once it is on GitHub Pages.
 // If USE_WORKER_PROXY is false, this REST key ships to every browser and
@@ -35,7 +35,7 @@ export const ONESIGNAL_REST_API_KEY = "";
 export const USE_WORKER_PROXY = true;
 
 // Full URL of your deployed Cloudflare Worker (only used when the flag above is true).
-export const WORKER_URL = "htpps://visual-messenger.ludmila-tauschova.workers.dev";
+export const WORKER_URL = "https://visual-messenger.ludmila-tauschova.workers.dev";
 
 // Direct OneSignal endpoint (only used when USE_WORKER_PROXY is false).
 export const ONESIGNAL_API_URL = "https://onesignal.com/api/v1/notifications";
