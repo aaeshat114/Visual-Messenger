@@ -515,4 +515,152 @@ export function subscribeAllQuestions(familyId, onData) {
 // CHILD: pending questions addressed to this uid, newest first (as in the spec).
 // That query needs a Firestore "composite index". If it hasn't been created yet
 // Firestore refuses it, and we automatically switch to the same query without
-// orderBy and sort in the brow
+// orderBy and sort in the browser instead. The README explains the index.
+export function subscribePendingQuestions(familyId, uid, onData) {
+  const filters = () => [where("targetUids", "array-contains", uid), where("status", "==", "pending")];
+  return listen([
+    { build: () => query(questionsCol(familyId), ...filters(), orderBy("createdAt", "desc")) },
+    { build: () => query(questionsCol(familyId), ...filters()), sort: (items) => items.sort(newestFirst) },
+  ], onData);
+}
+
+// CHILD: this child's most recent answered questions for "Your answers".
+// Same pattern: ideal query first, index-free fallback second.
+export function subscribeAnsweredQuestions(familyId, uid, onData) {
+  const byAnsweredDesc = (a, b) => (b.answeredAt || 0) - (a.answeredAt || 0);
+  return listen([
+    {
+      build: () => query(questionsCol(familyId), where("answeredBy", "==", uid),
+                         orderBy("answeredAt", "desc"), limit(HISTORY_LIMIT)),
+    },
+    {
+      build: () => query(questionsCol(familyId), where("answeredBy", "==", uid)),
+      sort: (items) => items.sort(byAnsweredDesc).slice(0, HISTORY_LIMIT),
+    },
+  ], onData);
+}
+
+// ---------------------------------------------------------------------------
+// 8. Realtime listener engine (shared by every subscribe... function)
+// ---------------------------------------------------------------------------
+
+// ---- Connection indicator ----
+// A listener counts as "down" if it errored, or if it has been serving only
+// cached data for a few seconds (the usual sign the network is gone).
+const CACHE_GRACE_MS = 4000;
+const downListeners = new Set();
+const connectionCallbacks = new Set();
+let connectionIsDown = false;
+
+function recomputeConnection() {
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const down = offline || downListeners.size > 0;
+  if (down !== connectionIsDown) {
+    connectionIsDown = down;
+    connectionCallbacks.forEach((cb) => cb(down));
+  }
+}
+window.addEventListener("online", recomputeConnection);
+window.addEventListener("offline", recomputeConnection);
+
+// app.js: onConnectionChange((isDown) => pill.hidden = !isDown). Returns an unsubscribe function.
+export function onConnectionChange(cb) {
+  connectionCallbacks.add(cb);
+  return () => connectionCallbacks.delete(cb);
+}
+
+// variants: [{ build: () => Query | DocumentReference, sort?: (items) => items }, ...]
+// We try variants[0]. If Firestore says "failed-precondition" (missing index),
+// we move on to the next variant. Any other error: retry the same variant with
+// exponential backoff (1s, 2s, 4s ... up to BACKOFF_MAX_MS, with a little jitter).
+// onData(items) is called with the full, current list (an array of plain objects).
+function listen(variants, onData) {
+  const id = Symbol("listener");
+  let active = true;
+  let unsubscribe = null;
+  let variantIndex = 0;
+  let delay = BACKOFF_START_MS;
+  let retryTimer = null;
+  let downTimer = null;
+  let first = true;               // always deliver the very first snapshot
+  let permissionReported = false;
+
+  function start() {
+    retryTimer = null;
+    if (!active) return;
+    const variant = variants[variantIndex];
+
+    unsubscribe = onSnapshot(
+      variant.build(),
+      // includeMetadataChanges lets us see "fromCache" flip to false when the server answers.
+      { includeMetadataChanges: true },
+      (snap) => {
+        if (!active) return;
+
+        // -- connection tracking --
+        if (!snap.metadata.fromCache) {
+          clearTimeout(downTimer);
+          downTimer = null;
+          delay = BACKOFF_START_MS;          // healthy again: reset the backoff
+          downListeners.delete(id);
+          recomputeConnection();
+        } else if (!downTimer && !downListeners.has(id)) {
+          downTimer = setTimeout(() => {
+            downTimer = null;
+            if (active) { downListeners.add(id); recomputeConnection(); }
+          }, CACHE_GRACE_MS);
+        }
+
+        // -- deliver data --
+        // Metadata-only snapshots (e.g. "your write was confirmed") change nothing
+        // visible, so we skip them. That stops the child's cards re-rendering and
+        // replaying their pop-in animation.
+        const dataChanged = "docChanges" in snap ? snap.docChanges().length > 0 : true;
+        if (first || dataChanged) {
+          first = false;
+          let items = "docs" in snap
+            ? snap.docs.map(plain)
+            : (snap.exists() ? [plain(snap)] : []);
+          if (variant.sort) items = variant.sort(items);
+          onData(items);
+        }
+      },
+      (err) => {
+        if (!active) return;
+        console.warn("Listener error:", err);
+
+        // Missing composite index: use the fallback query right away.
+        if (err.code === "failed-precondition" && variantIndex < variants.length - 1) {
+          console.warn("Firestore index missing, using fallback query. Details:", err.message);
+          variantIndex++;
+          first = true;
+          start();
+          return;
+        }
+
+        if (err.code === "permission-denied" && !permissionReported) {
+          permissionReported = true;
+          try { reporter(t("error.permissionDenied"), err); } catch (_) { /* ignore */ }
+        }
+
+        downListeners.add(id);
+        recomputeConnection();
+        const wait = delay * (0.8 + Math.random() * 0.4);   // +/- 20% jitter
+        delay = Math.min(delay * 2, BACKOFF_MAX_MS);
+        retryTimer = setTimeout(start, wait);
+      }
+    );
+  }
+
+  start();
+
+  // The function we hand back: call it to stop listening.
+  return function stop() {
+    active = false;
+    clearTimeout(retryTimer);
+    clearTimeout(downTimer);
+    if (unsubscribe) unsubscribe();
+    downListeners.delete(id);
+    recomputeConnection();
+  };
+                         }
