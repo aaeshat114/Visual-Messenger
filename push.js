@@ -136,10 +136,12 @@ async function doInit(role) {
 // "granted" only if the browser allows notifications AND we haven't been opted out.
 export function getPushStatus() {
   if (!isPushSupported()) return "unsupported";
-  if (Notification.permission === "granted") {
-    const optedIn = oneSignal ? oneSignal.User.PushSubscription.optedIn : true;
-    return optedIn === false ? "default" : "granted";
-  }
+    if (Notification.permission === "granted") {
+    // Only report "On" once OneSignal has really subscribed this device.
+    if (!oneSignal) return "default";
+    const sub = oneSignal.User.PushSubscription;
+    return sub.optedIn && sub.id ? "granted" : "default";
+    }
   return Notification.permission;          // "denied" or "default"
 }
 
