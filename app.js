@@ -817,6 +817,42 @@ function setupChildNotifButton() {
   updateChildNotifButton();
 }
 
+// A small gear in the corner of the child's screen. A grown-up holds it for 2 seconds
+// to sign out. A quick tap by a child only shows a hint.
+function setupChildSignOut() {
+  if ($("btn-child-signout")) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "btn-child-signout";
+  button.textContent = "⚙️";
+  button.setAttribute("aria-label", t("child.signOutHold"));
+  button.style.cssText =
+    "position:fixed;top:calc(8px + env(safe-area-inset-top));right:8px;z-index:30;" +
+    "width:56px;height:56px;border:0;border-radius:50%;background:rgba(255,253,249,0.5);" +
+    "font-size:24px;opacity:0.45;user-select:none;-webkit-user-select:none;touch-action:manipulation;";
+
+  let timer = null;
+  let heldFired = false;                       // true once the 2-second hold has completed
+  const cancel = () => { clearTimeout(timer); timer = null; };
+
+  button.addEventListener("pointerdown", () => {
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      heldFired = true;
+      signOut();                               // asks for confirmation first
+    }, 2000);
+  });
+  for (const name of ["pointerup", "pointerleave", "pointercancel"]) button.addEventListener(name, cancel);
+  button.addEventListener("click", () => {
+    if (heldFired) { heldFired = false; return; }   // the click that ends a completed hold
+    toast(t("child.signOutHold"));
+  });
+  button.addEventListener("contextmenu", (e) => e.preventDefault());   // stops Android's long-press menu
+
+  $("screen-child").appendChild(button);
+}
+
 function updateChildNotifButton() {
   const button = $("btn-child-notif");
   if (button) button.hidden = push.getPushStatus() !== "default";
