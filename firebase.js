@@ -329,6 +329,12 @@ export async function getMembers(familyId) {
   return snaps.docs.map(plain);          // each item's id is the member's uid
 }
 
+// Live list of the family's members (used by the parent for kids' names).
+// Each item's id is the member's uid.
+export function subscribeMembers(familyId, onData) {
+  return listen([{ build: () => collection(db, "families", familyId, "members") }], onData);
+}
+
 export async function updateDisplayName(familyId, displayName) {
   await write(() => updateDoc(memberRef(familyId, getUid()), { displayName }));
 }
