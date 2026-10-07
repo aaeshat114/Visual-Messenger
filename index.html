@@ -180,16 +180,23 @@
         <span data-i18n="compose.somethingElse"></span>
       </label>
 
-      <!-- Option picker: searches built-in + family cards -->
-      <label class="field-label" for="compose-search" data-i18n="compose.searchLabel"></label>
-      <div class="row">
-        <input id="compose-search" class="input" type="search" autocomplete="off"
-               data-i18n-placeholder="compose.searchPlaceholder">
-        <button type="button" id="btn-create-card" class="btn btn--soft" data-i18n="compose.createCard"></button>
-      </div>
+            <!-- Card maker: type a name (it searches the cards below), then pick an image if no card fits -->
+      <label class="field-label" for="compose-search" data-i18n="compose.cardLabel"></label>
+      <input id="compose-search" class="input" type="search" maxlength="40" autocomplete="off"
+             data-i18n-placeholder="compose.cardLabelPlaceholder">
       <div id="compose-results" class="tile-grid"></div>
-      <p id="compose-no-results" class="muted" data-i18n="compose.noResults" hidden></p>
+      <p id="compose-no-results" class="muted" data-i18n="compose.noMatchHint" hidden></p>
 
+      <!-- The card being made: shows the chosen image once there is one -->
+      <div class="row draft-row">
+        <div id="compose-draft" class="draft" hidden>
+          <span id="compose-draft-visual" class="draft__visual"></span>
+          <span id="compose-draft-label" class="draft__label"></span>
+        </div>
+        <button type="button" id="btn-pick-image" class="btn btn--soft" data-i18n="compose.pickImage"></button>
+        <button type="button" id="btn-add-card" class="btn btn--primary" data-i18n="compose.addToQuestion" hidden></button>
+      </div>
+      
       <p id="compose-error" class="error-text" role="alert" hidden></p>
       <button type="button" id="btn-send-question" class="btn btn--primary btn--wide" data-i18n="compose.send"></button>
     </main>
@@ -296,6 +303,54 @@
   <!-- Full-screen confetti canvas. pointer-events:none in CSS so it never blocks taps. -->
   <canvas id="confetti" class="confetti" aria-hidden="true" hidden></canvas>
 
+    <!-- ========== Image picker (opened from the compose screen) ========== -->
+  <dialog id="image-picker" class="sheet" aria-labelledby="picker-title">
+    <div class="sheet__body">
+
+      <!-- View 1: choose from the images that already exist -->
+      <div id="picker-list-view">
+        <h2 id="picker-title" data-i18n="picker.title"></h2>
+        <input id="picker-search" class="input" type="search" autocomplete="off"
+               data-i18n-placeholder="picker.searchPlaceholder" data-i18n-aria-label="common.search">
+        <div id="picker-grid" class="tile-grid picker-grid"></div>
+        <p id="picker-empty" class="muted" data-i18n="picker.empty" hidden></p>
+        <div class="row row--end">
+          <button type="button" id="btn-picker-close" class="btn btn--soft" data-i18n="common.close"></button>
+          <button type="button" id="btn-picker-new" class="btn btn--primary" data-i18n="picker.addNew"></button>
+        </div>
+      </div>
+
+      <!-- View 2: add a new image (SVG file, pasted SVG code, or a photo) -->
+      <div id="picker-new-view" hidden>
+        <h2 data-i18n="picker.newTitle"></h2>
+
+        <label class="field-label" for="picker-svg-file" data-i18n="picker.svgFile"></label>
+        <input id="picker-svg-file" type="file" accept=".svg,image/svg+xml">
+
+        <label class="field-label" for="picker-svg-text" data-i18n="picker.svgPaste"></label>
+        <textarea id="picker-svg-text" class="input picker-textarea" rows="4" spellcheck="false"
+                  data-i18n-placeholder="picker.svgPastePlaceholder"></textarea>
+
+        <label class="field-label" for="picker-photo" data-i18n="picker.photo"></label>
+        <input id="picker-photo" type="file" accept="image/*">
+
+        <p class="field-label" data-i18n="picker.preview"></p>
+        <div id="picker-preview" class="card-preview" aria-live="polite"></div>
+
+        <label class="field-label" for="picker-keyword" data-i18n="picker.keywordLabel"></label>
+        <input id="picker-keyword" class="input" type="text" maxlength="30" autocomplete="off">
+        <p class="muted" data-i18n="picker.keywordHelp"></p>
+
+        <p id="picker-error" class="error-text" role="alert" hidden></p>
+        <div class="row row--end">
+          <button type="button" id="btn-picker-new-back" class="btn btn--soft" data-i18n="common.back"></button>
+          <button type="button" id="btn-picker-save" class="btn btn--primary" data-i18n="common.save"></button>
+        </div>
+      </div>
+
+    </div>
+  </dialog>
+  
   <!-- ========== Create / edit card sheet ========== -->
   <dialog id="card-sheet" class="sheet" aria-labelledby="card-sheet-title">
     <div class="sheet__body">
