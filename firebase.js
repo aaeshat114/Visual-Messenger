@@ -53,6 +53,7 @@ import {
   PAIRING_CODE_LENGTH,
   PAIRING_CODE_ALPHABET,
   IMAGE_MAX_BYTES,
+  IMAGE_SVG_MAX_BYTES,
   BACKOFF_START_MS,
   BACKOFF_MAX_MS,
   LS_FAMILY_ID,
@@ -405,24 +406,45 @@ function dataUrlBytes(dataUrl) {
   return Math.floor((b64.length * 3) / 4) - padding;
 }
 
-// Save an already-downscaled image. { dataUrl, w, h } -> returns the new image id (the "imageRef").
-// Throws err.code "image-too-big" (with err.bytes) BEFORE touching the network
-// if it is over IMAGE_MAX_BYTES, so app.js can show t("cardSheet.errorImageTooBig").
-export async function saveImage(familyId, { dataUrl, w, h }) {
+// Save an image and return its id (the "imageRef").
+//   { dataUrl, w, h, kind, keyword }
+//   kind    = "svg" or "photo" (anything else counts as "photo", which is what the old
+//             Create New Card sheet sends)
+//   keyword = one word to find the image by (stored in lower case)
+// SVGs arrive here already cleaned, as a base64 data URL ("data:image/svg+xml;base64,...").
+// Throws err.code "image-too-big" (with err.bytes and err.maxBytes) BEFORE touching the
+// network if the file is over its limit, so app.js can show a clear message.
+export async function saveImage(familyId, { dataUrl, w, h, kind, keyword }) {
   if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) throw codedError("bad-image");
+  const imageKind = kind === "svg" ? "svg" : "photo";
+  const maxBytes = imageKind === "svg" ? IMAGE_SVG_MAX_BYTES : IMAGE_MAX_BYTES;
   const bytes = dataUrlBytes(dataUrl);
-  if (bytes > IMAGE_MAX_BYTES) {
+  if (bytes > maxBytes) {
     const err = codedError("image-too-big");
     err.bytes = bytes;
+    err.maxBytes = maxBytes;
     throw err;
   }
   const ref = await write(() => addDoc(imagesCol(familyId), {
-    dataUrl, w, h, bytes,
+    kind: imageKind,
+    dataUrl,
+    w: w || null,                       // Firestore refuses "undefined", and SVGs have no pixel size
+    h: h || null,
+    bytes,
+    keyword: String(keyword || "").trim().toLowerCase(),
     createdBy: getUid(),
     createdAt: serverTimestamp(),
   }));
   imageCache.set(`${familyId}/${ref.id}`, Promise.resolve(dataUrl));
   return ref.id;
+}
+
+
+// Live list of the family's own images (SVGs and photos), newest first. Each item looks
+// like { id, kind, dataUrl, keyword, ... }. Photos saved before this change have no kind
+// or keyword, and app.js treats a missing kind as "photo".
+export function subscribeImages(familyId, onData) {
+  return listen([{ build: () => imagesCol(familyId), sort: (items) => items.sort(newestFirst) }], onData);
 }
 
 // Images are fetched on demand and remembered, so each image costs at most one
