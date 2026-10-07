@@ -8,7 +8,7 @@
 //   3. Parent: home list, nudging, install banner
 //   4. Parent: compose
 //   5. Card sheet (create/edit card) and Card Library
-//   6. Settings
+//   6. Settings (parents and kids)
 //   7. Child: question, answers, confetti
 //   8. Event wiring and start-up
 //
@@ -53,11 +53,12 @@ const state = {
   familyId: null,
   uid: null,
   family: null,                 // the family document (memberUids, pairingCode)
+  members: {},                  // parent only: uid -> member document (names)
   cards: [],                    // the family's custom cards
   questions: [],                // parent: newest questions of every status
   childPending: [],             // child: pending questions, newest first
   childAnswered: [],            // child: answered questions, newest first
-  compose: { options: [], allowMultiple: false, somethingElse: false },
+  compose: { options: [], allowMultiple: false, somethingElse: false, targets: new Set() },
   libFilter: "all",
   sheet: null,                  // state of the open card sheet
   installEvent: null,           // saved beforeinstallprompt event
@@ -132,6 +133,15 @@ function cardLabel(card) {
 
 function childUids() { return fb.uidsByRole(state.family && state.family.memberUids, "child"); }
 function parentUids() { return fb.uidsByRole(state.family && state.family.memberUids, "parent"); }
+
+// A kid's display name. If two kids share a name (for example both are still the
+// default "Kid"), a number is added so the parent can tell them apart: "Kid 1", "Kid 2".
+function memberName(uid) {
+  const nameOf = (u) => (state.members[u] && state.members[u].displayName) || t("role.defaultNameKid");
+  const base = nameOf(uid);
+  const same = childUids().filter((u) => nameOf(u) === base);
+  return same.length > 1 ? `${base} ${same.indexOf(uid) + 1}` : base;
+}
 
 // "🍕 Pizza, 🎬 Movie, typed text". Used in push bodies and the child's history.
 function summarize(options, selectedKeys, text) {
@@ -208,6 +218,7 @@ async function startParentPairing() {
 function startKidPairing() {
   document.body.dataset.role = "child";
   $("pair-input").value = "";
+  $("pair-name").value = "";
   $("pair-error").hidden = true;
   showScreen("pair-kid");
   $("pair-input").focus();
@@ -224,7 +235,9 @@ async function joinAsKid() {
   button.textContent = t("pair.kid.joining");
   try {
     state.uid = await fb.ensureSignedIn();
-    const { familyId } = await fb.joinFamilyByCode(code, t("role.defaultNameKid"));
+    // The name is optional; without one the kid is called "Kid".
+    const name = $("pair-name").value.trim() || t("role.defaultNameKid");
+    const { familyId } = await fb.joinFamilyByCode(code, name);
     enterHome(familyId, "child");
   } catch (err) {
     console.error(err);
@@ -247,10 +260,14 @@ function enterHome(familyId, role) {
   push.initPush(role).then(() => { if (role === "child") updateChildNotifButton(); });
   fb.touchLastSeen(familyId);
 
-     stops.push(fb.subscribeFamily(familyId, (family) => {
-     state.family = family || null;
-     if (!$("screen-settings").hidden) updateSettingsCode();
-   }));
+  stops.push(fb.subscribeFamily(familyId, (family) => {
+    state.family = family || null;
+    if (!$("screen-settings").hidden) updateSettingsCode();
+    if (state.role === "parent") {            // a kid joined or left: refresh names and the "Send to" buttons
+      renderParentHome();
+      if (!$("screen-compose").hidden) renderRecipients();
+    }
+  }));
 
   if (role === "parent") startParent();
   else startChild();
@@ -270,6 +287,12 @@ function startParent() {
     state.cards = items;
     if (!$("screen-compose").hidden) renderResults();
     if (!$("screen-library").hidden) renderLibrary();
+  }));
+  // Kids' names, live: a rename on a kid's device shows up here.
+  stops.push(fb.subscribeMembers(state.familyId, (items) => {
+    state.members = Object.fromEntries(items.map((m) => [m.id, m]));
+    renderParentHome();
+    if (!$("screen-compose").hidden) renderRecipients();
   }));
   updateInstallBanner();
 }
@@ -299,7 +322,14 @@ function buildQuestionCard(q) {
   badge.textContent = t("parent.status." + q.status);
   badge.classList.toggle("is-answered", q.status === "answered");
   badge.classList.toggle("is-cancelled", q.status === "cancelled");
-  card.querySelector(".q-card__mode").textContent = q.allowMultiple ? t("parent.multiple") : t("parent.single");
+
+  // "Pick one · For Mia" while waiting, "Pick one · Answered by Mia" once answered.
+  // Every question is sent to exactly one kid, so the name is unambiguous.
+  const kidUid = (q.status === "answered" && q.answeredBy) || (q.targetUids || [])[0];
+  const modeText = q.allowMultiple ? t("parent.multiple") : t("parent.single");
+  card.querySelector(".q-card__mode").textContent = kidUid
+    ? `${modeText} · ${t(q.status === "answered" ? "parent.answeredBy" : "parent.for", { name: memberName(kidUid) })}`
+    : modeText;
 
   // Option thumbnails; chosen ones are highlighted on answered questions.
   const answer = q.answer || { selectedKeys: [], text: null };
@@ -395,8 +425,13 @@ function openCompose(prefill) {
   c.options = [];
   c.allowMultiple = false;
   c.somethingElse = false;
-  let text = "";
 
+  // Who gets the question: everyone by default; when duplicating, the same kid(s) as before.
+  const kids = childUids();
+  c.targets = new Set(prefill && prefill.targetUids ? prefill.targetUids.filter((uid) => kids.includes(uid)) : kids);
+  if (c.targets.size === 0) c.targets = new Set(kids);
+
+  let text = "";
   if (prefill) {
     text = prefill.text || "";
     c.allowMultiple = !!prefill.allowMultiple;
@@ -413,8 +448,43 @@ function openCompose(prefill) {
   $("compose-error").hidden = true;
   setSending(false);
   showScreen("compose");
+  renderRecipients();
   renderChips();
   renderResults();
+}
+
+// The "Send to" buttons. Only shown when two or more kids are paired.
+function renderRecipients() {
+  const c = state.compose;
+  const kids = childUids();
+  $("compose-recipients-box").hidden = kids.length < 2;     // with one kid there is nothing to choose
+  if (kids.length < 2) return;
+
+  c.targets = new Set([...c.targets].filter((uid) => kids.includes(uid)));   // drop kids who have left
+
+  const makeButton = (label, pressed, onClick) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-btn";                        // same look as the library's filter buttons
+    button.textContent = label;
+    button.setAttribute("aria-pressed", String(pressed));
+    button.addEventListener("click", onClick);
+    return button;
+  };
+
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(makeButton(t("compose.everyone"), c.targets.size === kids.length, () => {
+    c.targets = new Set(kids);
+    renderRecipients();
+  }));
+  for (const uid of kids) {
+    fragment.appendChild(makeButton(memberName(uid), c.targets.has(uid), () => {
+      if (c.targets.has(uid)) c.targets.delete(uid);
+      else c.targets.add(uid);
+      renderRecipients();
+    }));
+  }
+  $("compose-recipients").replaceChildren(fragment);
 }
 
 function setSending(isSending) {
@@ -499,20 +569,28 @@ async function sendQuestion() {
 
   if (!text) { showComposeError(t("compose.errorNeedText")); return; }
   if (total < MIN_OPTIONS) { showComposeError(t("compose.errorNeedOptions", { min: MIN_OPTIONS })); return; }
-  const targets = childUids();
-  if (targets.length === 0) { showComposeError(t("pair.parent.body")); return; }   // no child has paired yet
+
+  const kids = childUids();
+  if (kids.length === 0) { showComposeError(t("pair.parent.body")); return; }   // no child has paired yet
+  // With one kid there is nothing to choose; with several, only the kids that are switched on.
+  const targets = kids.length === 1 ? kids : kids.filter((uid) => c.targets.has(uid));
+  if (targets.length === 0) { showComposeError(t("compose.errorNeedKid")); return; }
 
   const options = c.options.map((o) => ({ ...o }));
   if (c.somethingElse) options.push({ key: ELSE_KEY, label: t("child.somethingElse"), emoji: "💬", imageRef: null });
 
   setSending(true);
   try {
-    const questionId = await fb.createQuestion(state.familyId, {
-      text, allowMultiple: c.allowMultiple, options, targetUids: targets,
-    });
-    // Push in the background: a failed push must never block or undo the send.
-    push.sendPush(targets, t("push.newQuestion.title"), t("push.newQuestion.body", { text }), { questionId, type: "question" })
-      .then((result) => { if (!result.ok) toast(t("error.pushFailed"), "error"); });
+    // One copy of the question per kid. Each kid answers their own copy, which is how
+    // the parent can see who answered what.
+    for (const uid of targets) {
+      const questionId = await fb.createQuestion(state.familyId, {
+        text, allowMultiple: c.allowMultiple, options, targetUids: [uid],
+      });
+      // Push in the background: a failed push must never block or undo the send.
+      push.sendPush([uid], t("push.newQuestion.title"), t("push.newQuestion.body", { text }), { questionId, type: "question" })
+        .then((result) => { if (!result.ok) toast(t("error.pushFailed"), "error"); });
+    }
     toast(t("compose.sent"));
     showScreen("parent");
   } catch (_) {
@@ -731,11 +809,15 @@ function renderLibrary() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Settings
+// 6. Settings (the same screen for parents and kids)
 // ---------------------------------------------------------------------------
 
 async function openSettings() {
   showScreen("settings");
+  // Kids get the same settings as parents, except the pairing code, which stays with the parent.
+  const isParent = state.role === "parent";
+  $("settings-code-title").hidden = !isParent;
+  $("btn-toggle-code").hidden = !isParent;
   $("settings-code").hidden = true;
   $("btn-toggle-code").textContent = t("settings.showCode");
   updateSettingsCode();
@@ -787,7 +869,7 @@ function stopEverything() {
 function startChild() {
   showScreen("child");
   setupChildNotifButton();
-  setupChildSignOut();
+  setupChildSettingsButton();
   stops.push(fb.subscribePendingQuestions(state.familyId, state.uid, (items) => {
     state.childPending = items;
     renderChild(false);
@@ -819,12 +901,12 @@ function setupChildNotifButton() {
 }
 
 // A small gear in the corner of the child's screen. A grown-up holds it for 2 seconds
-// to sign out. A quick tap by a child only shows a hint.
-function setupChildSignOut() {
-  if ($("btn-child-signout")) return;
+// to open the settings (name, notifications, sign out). A quick tap by a child only shows a hint.
+function setupChildSettingsButton() {
+  if ($("btn-child-settings")) return;
   const button = document.createElement("button");
   button.type = "button";
-  button.id = "btn-child-signout";
+  button.id = "btn-child-settings";
   button.textContent = "⚙️";
   button.setAttribute("aria-label", t("child.signOutHold"));
   button.style.cssText =
@@ -841,7 +923,7 @@ function setupChildSignOut() {
     timer = setTimeout(() => {
       timer = null;
       heldFired = true;
-      signOut();                               // asks for confirmation first
+      openSettings();
     }, 2000);
   });
   for (const name of ["pointerup", "pointerleave", "pointercancel"]) button.addEventListener(name, cancel);
@@ -1133,17 +1215,18 @@ function wireEvents() {
   $("btn-card-cancel").addEventListener("click", () => $("card-sheet").close());
   $("btn-card-save").addEventListener("click", saveCardFromSheet);
 
-  // ---- Settings ----
-  $("btn-settings-back").addEventListener("click", () => showScreen("parent"));
+  // ---- Settings (parents go back to their home, kids back to their screen) ----
+  $("btn-settings-back").addEventListener("click", () => showScreen(state.role === "child" ? "child" : "parent"));
   $("btn-save-name").addEventListener("click", async () => {
     try {
       await fb.updateDisplayName(state.familyId, $("settings-name").value.trim());
       toast(t("settings.nameSaved"));
     } catch (_) { /* toast already shown */ }
   });
-  $("btn-enable-push").addEventListener("click", async () => {   // the ONLY place the parent is asked for permission
+  $("btn-enable-push").addEventListener("click", async () => {   // permission is only ever requested from a button tap
     await push.requestPushPermission();
     refreshPushUi();
+    updateChildNotifButton();
   });
   $("btn-push-banner-dismiss").addEventListener("click", () => {
     lsSet(LS_PUSH_BANNER_DISMISSED, "1");
