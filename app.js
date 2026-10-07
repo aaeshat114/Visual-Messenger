@@ -6,7 +6,8 @@
 //   1. Imports, state, small helpers
 //   2. Boot, role select, pairing
 //   3. Parent: home list, nudging, install banner
-//   4. Parent: compose
+//   4. Parent: compose (who gets it, options, sending)
+//   4b. Card maker (label + image) and the image picker
 //   5. Card sheet (create/edit card) and Card Library
 //   6. Settings (parents and kids)
 //   7. Child: question, answers, confetti
@@ -27,11 +28,12 @@ import {
   IMAGE_MAX_DIMENSION,
   IMAGE_QUALITY,
   IMAGE_MAX_BYTES,
+  IMAGE_SVG_MAX_BYTES,
   LS_INSTALL_DISMISSED,
   LS_PUSH_BANNER_DISMISSED,
 } from "./config.js";
 import { t, tCard, applyTranslations } from "./i18n.js";
-import { BUILTIN_CARDS, BUILTIN_CATEGORIES, searchCards } from "./cards-builtin.js";
+import { BUILTIN_CARDS, BUILTIN_CATEGORIES, BUILTIN_IMAGES, searchCards, searchImages } from "./cards-builtin.js";
 
 // ---------------------------------------------------------------------------
 // 1. State and helpers
@@ -55,10 +57,18 @@ const state = {
   family: null,                 // the family document (memberUids, pairingCode)
   members: {},                  // parent only: uid -> member document (names)
   cards: [],                    // the family's custom cards
+  images: [],                   // parent only: the family's own images (SVGs and photos)
   questions: [],                // parent: newest questions of every status
   childPending: [],             // child: pending questions, newest first
   childAnswered: [],            // child: answered questions, newest first
-  compose: { options: [], allowMultiple: false, somethingElse: false, targets: new Set() },
+  compose: {
+    options: [],                // the cards chosen for this question
+    allowMultiple: false,
+    somethingElse: false,
+    targets: new Set(),         // which kids get the question
+    draftImage: null,           // the image picked for the card being made (or null)
+  },
+  picker: { newImage: null },   // the image picker's "add new image" form
   libFilter: "all",
   sheet: null,                  // state of the open card sheet
   installEvent: null,           // saved beforeinstallprompt event
@@ -104,20 +114,20 @@ function cloneTemplate(id) {
   return fragment;
 }
 
-// Draw an emoji and/or a photo into `el`. The emoji shows straight away; if the
-// card has a photo it is fetched (and cached by firebase.js) and swapped in.
+// Draw an emoji and/or a photo or SVG into `el`. An emoji shows straight away; if the
+// card has an image it is fetched (and cached by firebase.js) and swapped in.
 function setVisual(el, { emoji, imageRef }) {
   el.replaceChildren();
-  el.textContent = emoji || "⭐";
+  el.textContent = emoji || (imageRef ? "" : "⭐");     // no star flash while an image loads
   if (!imageRef || !fb || !state.familyId) return;
   fb.getImage(state.familyId, imageRef).then((dataUrl) => {
-    if (!dataUrl) return;                       // image document is gone: keep the emoji
+    if (!dataUrl) { el.textContent = emoji || "⭐"; return; }   // image document is gone: placeholder
     const img = document.createElement("img");
     img.alt = "";
     img.decoding = "async";
     img.src = dataUrl;
     el.replaceChildren(img);
-  }).catch(() => { /* keep the emoji */ });
+  }).catch(() => { el.textContent = emoji || "⭐"; });
 }
 
 // Label to show for any option. The "Something else" label is translated at
@@ -288,6 +298,11 @@ function startParent() {
     if (!$("screen-compose").hidden) renderResults();
     if (!$("screen-library").hidden) renderLibrary();
   }));
+  // The family's own images (SVGs and photos), for the image picker.
+  stops.push(fb.subscribeImages(state.familyId, (items) => {
+    state.images = items;
+    if ($("image-picker").open) renderPicker();
+  }));
   // Kids' names, live: a rename on a kid's device shows up here.
   stops.push(fb.subscribeMembers(state.familyId, (items) => {
     state.members = Object.fromEntries(items.map((m) => [m.id, m]));
@@ -425,6 +440,7 @@ function openCompose(prefill) {
   c.options = [];
   c.allowMultiple = false;
   c.somethingElse = false;
+  c.draftImage = null;
 
   // Who gets the question: everyone by default; when duplicating, the same kid(s) as before.
   const kids = childUids();
@@ -451,6 +467,7 @@ function openCompose(prefill) {
   renderRecipients();
   renderChips();
   renderResults();
+  renderDraft();
 }
 
 // The "Send to" buttons. Only shown when two or more kids are paired.
@@ -538,7 +555,7 @@ function renderChips() {
   $("compose-chips").replaceChildren(fragment);
 }
 
-// Search box results: the family's own cards first, then the built-in set.
+// Cards matching what was typed in the card-name box: the family's own cards first, then the built-in set.
 function renderResults() {
   const all = [...state.cards, ...BUILTIN_CARDS];
   const found = searchCards(all, $("compose-search").value, "all");
@@ -599,6 +616,309 @@ async function sendQuestion() {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. Card maker (label + image) and the image picker
+// ---------------------------------------------------------------------------
+// An IMAGE here is { id, kind, emoji?, dataUrl?, keyword }.
+//   kind "emoji": a premade image (id looks like "builtin:pizza", the emoji is in `emoji`)
+//   kind "svg" or "photo": your own image, saved in Firestore (id is the Firestore id,
+//                          the picture itself is in `dataUrl`)
+// A CARD is still { label, emoji, imageRef }: an emoji image fills `emoji`, an own image fills `imageRef`.
+
+// Draw an image (emoji or picture) into an element, using data we already have.
+function paintImage(el, image) {
+  el.replaceChildren();
+  if (image.kind === "emoji") {
+    el.textContent = image.emoji;
+    return;
+  }
+  const img = document.createElement("img");
+  img.alt = "";
+  img.decoding = "async";
+  img.src = image.dataUrl;
+  el.replaceChildren(img);
+}
+
+// The row under the card-name box: the image picked so far, and the right buttons.
+function renderDraft() {
+  const image = state.compose.draftImage;
+  $("compose-draft").hidden = !image;
+  $("btn-add-card").hidden = !image;
+  $("btn-pick-image").textContent = image ? t("compose.changeImage") : t("compose.pickImage");
+  if (!image) return;
+  const visual = $("compose-draft-visual");
+  if (visual.dataset.imageId !== String(image.id)) {         // redraw the picture only when it changed
+    paintImage(visual, image);
+    visual.dataset.imageId = String(image.id);
+  }
+  $("compose-draft-label").textContent = $("compose-search").value.trim();   // follows what is typed
+}
+
+// Does this card already use this image? Used to avoid saving duplicate cards.
+function cardUsesImage(card, image) {
+  return image.kind === "emoji"
+    ? !card.imageRef && card.emoji === image.emoji
+    : card.imageRef === image.id;
+}
+
+// "Add to question": turn the typed name + picked image into a card and add it to the question.
+async function addDraftCard() {
+  const c = state.compose;
+  const label = $("compose-search").value.trim();
+  const image = c.draftImage;
+  if (!label) { showComposeError(t("compose.needLabelFirst")); return; }
+  if (!image) { showComposeError(t("compose.needImage")); return; }
+  if (c.options.length >= MAX_OPTIONS) { showComposeError(t("compose.errorTooMany", { max: MAX_OPTIONS })); return; }
+  $("compose-error").hidden = true;
+
+  // Re-use a card that already has this exact name and picture, instead of saving a duplicate.
+  const same = [...state.cards, ...BUILTIN_CARDS].find(
+    (card) => cardLabel(card).toLowerCase() === label.toLowerCase() && cardUsesImage(card, image)
+  );
+
+  if (same) {
+    if (!c.options.some((o) => o.key === same.id)) c.options.push(toOption(same));
+  } else {
+    const button = $("btn-add-card");
+    button.disabled = true;
+    try {
+      // Save the new card to the family's cards, so it shows up in the search next time.
+      const data = {
+        label,
+        emoji: image.kind === "emoji" ? image.emoji : "",
+        imageRef: image.kind === "emoji" ? null : image.id,
+        keywords: image.keyword ? [image.keyword] : [],
+        category: "custom",
+      };
+      const id = await fb.createCard(state.familyId, data);
+      c.options.push(toOption({ id, builtIn: false, ...data }));
+    } catch (_) {
+      return;                                  // toast already shown by firebase.js
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  // Ready for the next card.
+  c.draftImage = null;
+  $("compose-search").value = "";
+  renderDraft();
+  renderChips();
+  renderResults();
+}
+
+// ---- The picker dialog ----
+
+// "Pick image": needs a name first, then opens the picker.
+function openImagePicker() {
+  if (!$("compose-search").value.trim()) {
+    showComposeError(t("compose.needLabelFirst"));
+    $("compose-search").focus();
+    return;
+  }
+  $("compose-error").hidden = true;
+  $("picker-search").value = "";
+  showPickerView("list");
+  renderPicker();
+  $("image-picker").showModal();
+}
+
+// The picker has two views in one dialog: the list of images, and the "add new image" form.
+function showPickerView(view) {
+  $("picker-list-view").hidden = view !== "list";
+  $("picker-new-view").hidden = view !== "new";
+  $("image-picker").querySelector(".sheet__body").scrollTop = 0;
+}
+
+// Every image the parent can pick: their own first, then the premade ones.
+function allPickerImages() {
+  const own = state.images
+    .filter((img) => img.dataUrl)                            // skip any broken document
+    .map((img) => ({
+      id: img.id,
+      kind: img.kind || "photo",                             // photos saved before this change have no kind
+      dataUrl: img.dataUrl,
+      keyword: img.keyword || "",
+    }));
+  return [...own, ...BUILTIN_IMAGES];
+}
+
+function renderPicker() {
+  const found = searchImages(allPickerImages(), $("picker-search").value);
+  const shown = found.slice(0, 150);                         // typing narrows the list
+  const fragment = document.createDocumentFragment();
+  for (const image of shown) {
+    const tile = cloneTemplate("tpl-tile").firstElementChild;
+    paintImage(tile.querySelector(".tile__visual"), image);
+    tile.querySelector(".tile__label").textContent = image.keyword;
+    tile.setAttribute("aria-label", t("picker.pick", { keyword: image.keyword }));
+    tile.addEventListener("click", () => pickImage(image));
+    fragment.appendChild(tile);
+  }
+  $("picker-grid").replaceChildren(fragment);
+  $("picker-empty").hidden = shown.length > 0;
+}
+
+// An image was chosen (from the list, or just saved): close the picker and show it in the card maker.
+function pickImage(image) {
+  state.compose.draftImage = {
+    id: image.id, kind: image.kind, emoji: image.emoji, dataUrl: image.dataUrl, keyword: image.keyword,
+  };
+  $("image-picker").close();
+  renderDraft();
+}
+
+// ---- Adding a new image ----
+
+function openNewImageView() {
+  $("picker-svg-file").value = "";
+  $("picker-svg-text").value = "";
+  $("picker-photo").value = "";
+  $("picker-error").hidden = true;
+  $("picker-keyword").value = $("compose-search").value.trim().toLowerCase();   // starts as the card name
+  setNewImage(null);
+  showPickerView("new");
+}
+
+function pickerError(message) {
+  $("picker-error").textContent = message;
+  $("picker-error").hidden = false;
+}
+
+// Remember the image being added and show a preview of it.
+function setNewImage(image) {
+  state.picker.newImage = image;
+  const preview = $("picker-preview");
+  if (!image) { preview.replaceChildren(); return; }
+  const img = document.createElement("img");
+  img.alt = "";
+  img.src = image.dataUrl;
+  preview.replaceChildren(img);
+}
+
+// Clean up SVG code and turn it into a data URL. Returns { dataUrl } or { error }.
+// Safety: the picture is only ever shown inside an <img> tag, where scripts cannot run,
+// and we also strip scripts and event handlers here as a second layer.
+function prepareSvg(rawText) {
+  let text = String(rawText || "").trim();
+  if (!/<svg[\s>]/i.test(text)) return { error: t("picker.errorBadSvg") };
+
+  // Make sure the XML namespace is declared, or the browser will not draw the picture.
+  text = text.replace(/<svg(?![^>]*\sxmlns=)/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const root = doc.documentElement;
+  if (!root || root.nodeName !== "svg" || doc.querySelector("parsererror")) return { error: t("picker.errorBadSvg") };
+
+  // Remove anything that could run code.
+  root.querySelectorAll("script, foreignObject").forEach((el) => el.remove());
+  for (const el of [root, ...root.querySelectorAll("*")]) {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      const isHandler = name.startsWith("on");                                   // onclick, onload, ...
+      const isScriptLink = (name === "href" || name === "xlink:href") && value.startsWith("javascript:");
+      if (isHandler || isScriptLink) el.removeAttribute(attr.name);
+    }
+  }
+
+  // The picture needs a viewBox to scale. If it is missing, build one from width and height.
+  if (!root.getAttribute("viewBox")) {
+    const w = parseFloat(root.getAttribute("width"));
+    const h = parseFloat(root.getAttribute("height"));
+    if (w > 0 && h > 0) root.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    else return { error: t("picker.errorNoViewBox") };
+  }
+
+  const svg = new XMLSerializer().serializeToString(root);
+  const bytes = new TextEncoder().encode(svg).length;
+  if (bytes > IMAGE_SVG_MAX_BYTES) {
+    return { error: t("picker.errorSvgTooBig", { kb: Math.round(bytes / 1024), max: Math.round(IMAGE_SVG_MAX_BYTES / 1024) }) };
+  }
+  // btoa only handles plain characters, so turn the text into bytes first (keeps accents and symbols safe).
+  const binary = Array.from(new TextEncoder().encode(svg), (b) => String.fromCharCode(b)).join("");
+  return { dataUrl: "data:image/svg+xml;base64," + btoa(binary) };
+}
+
+// Use SVG code as the new image. showErrors is false while typing or pasting, because half-typed code is not an error yet.
+function applySvgText(text, showErrors) {
+  const result = prepareSvg(text);
+  if (result.error) {
+    setNewImage(null);
+    if (showErrors) pickerError(result.error);
+    return;
+  }
+  $("picker-error").hidden = true;
+  setNewImage({ kind: "svg", dataUrl: result.dataUrl, w: null, h: null });
+}
+
+async function onSvgFileChosen(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    const text = await file.text();
+    $("picker-svg-text").value = "";            // the file wins over any pasted code
+    applySvgText(text, true);
+  } catch (err) {
+    console.warn("SVG file read failed:", err);
+    pickerError(t("cardSheet.errorImageRead"));
+  }
+}
+
+async function onPickerPhotoChosen(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  $("picker-error").hidden = true;
+  try {
+    const image = await downscaleImage(file);
+    if (image.bytes > IMAGE_MAX_BYTES) {
+      pickerError(t("cardSheet.errorImageTooBig", { kb: Math.round(image.bytes / 1024) }));
+      return;
+    }
+    $("picker-svg-text").value = "";
+    setNewImage({ kind: "photo", dataUrl: image.dataUrl, w: image.w, h: image.h });
+  } catch (err) {
+    console.warn("Image read failed:", err);
+    pickerError(t("cardSheet.errorImageRead"));
+  }
+}
+
+// Save the new image to the family's images, then use it straight away.
+async function savePickerImage() {
+  const p = state.picker;
+  const keyword = $("picker-keyword").value.trim().toLowerCase();
+
+  if (!p.newImage) {
+    // Nothing usable yet: explain why (pasted code that is invalid, or nothing chosen at all).
+    const pasted = $("picker-svg-text").value;
+    if (pasted.trim()) pickerError(prepareSvg(pasted).error || t("picker.errorBadSvg"));
+    else pickerError(t("picker.errorNoImage"));
+    return;
+  }
+  if (!keyword) { pickerError(t("picker.errorNoKeyword")); return; }
+
+  const button = $("btn-picker-save");
+  button.disabled = true;
+  $("picker-error").hidden = true;
+  try {
+    const id = await fb.saveImage(state.familyId, { ...p.newImage, keyword });
+    toast(t("picker.saved"));
+    pickImage({ id, kind: p.newImage.kind, dataUrl: p.newImage.dataUrl, keyword });
+  } catch (err) {
+    if (err.code === "image-too-big") {
+      pickerError(p.newImage.kind === "svg"
+        ? t("picker.errorSvgTooBig", { kb: Math.round(err.bytes / 1024), max: Math.round(err.maxBytes / 1024) })
+        : t("cardSheet.errorImageTooBig", { kb: Math.round(err.bytes / 1024) }));
+    } else if (!err.reported) {
+      pickerError(t("error.generic"));          // write errors were already toasted
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 5. Card sheet (create / edit) and Card Library
 // ---------------------------------------------------------------------------
 
@@ -619,7 +939,7 @@ function dataUrlBytes(dataUrl) {
 }
 
 // card = an existing custom card to edit, or null for a new one.
-// onSaved(card) is called with the saved card (compose uses it to add the new card straight away).
+// onSaved(card) is called with the saved card (or null when nothing needs to happen afterwards).
 function openCardSheet(card, onSaved) {
   state.sheet = {
     card,
@@ -1167,20 +1487,27 @@ function wireEvents() {
 
   // ---- Compose ----
   $("btn-compose-back").addEventListener("click", () => showScreen("parent"));
-  $("compose-search").addEventListener("input", renderResults);
+  // Typing in the card-name box searches the cards and keeps the card being made up to date.
+  $("compose-search").addEventListener("input", () => { renderResults(); renderDraft(); });
   for (const radio of document.querySelectorAll('input[name="compose-mode"]')) {
     radio.addEventListener("change", () => { state.compose.allowMultiple = radio.value === "multiple" && radio.checked; });
   }
   $("compose-something-else").addEventListener("change", (e) => { state.compose.somethingElse = e.target.checked; });
-  $("btn-create-card").addEventListener("click", () => {
-    // A card created from here is added to the question straight away.
-    openCardSheet(null, (card) => {
-      if (state.compose.options.length < MAX_OPTIONS) state.compose.options.push(toOption(card));
-      renderChips();
-      renderResults();
-    });
-  });
+  $("btn-pick-image").addEventListener("click", openImagePicker);
+  $("btn-add-card").addEventListener("click", addDraftCard);
   $("btn-send-question").addEventListener("click", sendQuestion);
+
+  // ---- Image picker ----
+  $("picker-search").addEventListener("input", renderPicker);
+  $("btn-picker-close").addEventListener("click", () => $("image-picker").close());
+  $("btn-picker-new").addEventListener("click", openNewImageView);
+  $("btn-picker-new-back").addEventListener("click", () => showPickerView("list"));
+  $("picker-svg-file").addEventListener("change", onSvgFileChosen);
+  $("picker-svg-text").addEventListener("input", (e) => {
+    if (e.target.value.trim()) applySvgText(e.target.value, false);   // an emptied box must not wipe a chosen file
+  });
+  $("picker-photo").addEventListener("change", onPickerPhotoChosen);
+  $("btn-picker-save").addEventListener("click", savePickerImage);
 
   // ---- Library ----
   buildLibraryFilters();
