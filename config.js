@@ -71,6 +71,9 @@ export const IMAGE_QUALITY = 0.8;               // WebP quality, 0 to 1
 export const IMAGE_MAX_BYTES = 900 * 1024;      // reject anything larger after downscaling
                                                 // (Firestore docs cap at 1 MiB, so this leaves headroom)
 
+// SVG images (icons from sites like Flaticon) are text, so they get their own, smaller limit.
+export const IMAGE_SVG_MAX_BYTES = 100 * 1024;  // reject SVG files larger than 100 KB
+
 // Option limits for a question
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 6;
