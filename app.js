@@ -787,6 +787,7 @@ function stopEverything() {
 function startChild() {
   showScreen("child");
   setupChildNotifButton();
+  setupChildSignOut();
   stops.push(fb.subscribePendingQuestions(state.familyId, state.uid, (items) => {
     state.childPending = items;
     renderChild(false);
