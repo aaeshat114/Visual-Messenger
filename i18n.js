@@ -157,6 +157,7 @@ export const STRINGS = {
     "child.back": "Back",
     "child.submitFailed": "Oops, that didn't send. Try again!",
     "child.selected": "Selected",
+    "child.signOutHold": "Grown-ups: hold for 2 seconds to sign out",
 
     // ---- Settings ----
     "settings.title": "Settings",
