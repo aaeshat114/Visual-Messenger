@@ -117,6 +117,37 @@ export const STRINGS = {
     "cardSheet.saved": "Card saved.",
     "cardSheet.deleted": "Card deleted.",
 
+        // ---- Compose: the card maker (label + image) ----
+    "compose.cardLabel": "Card name",
+    "compose.cardLabelPlaceholder": "Type a name, e.g. Pizza",
+    "compose.noMatchHint": "No card with that name yet. Pick an image to make your own.",
+    "compose.pickImage": "Pick image",
+    "compose.changeImage": "Change image",
+    "compose.addToQuestion": "Add to question",
+    "compose.needLabelFirst": "Type a card name first.",
+    "compose.needImage": "Pick an image for this card.",
+
+    // ---- Image picker ----
+    "picker.title": "Pick an image",
+    "picker.searchPlaceholder": "Search images (e.g. pizza)",
+    "picker.empty": "No images match. Add a new one.",
+    "picker.pick": "Use this image: {keyword}",
+    "picker.addNew": "Add new image",
+    "picker.newTitle": "Add a new image",
+    "picker.svgFile": "SVG file",
+    "picker.svgPaste": "Or paste SVG code",
+    "picker.svgPastePlaceholder": "Paste the SVG code here",
+    "picker.photo": "Or upload a photo",
+    "picker.keywordLabel": "Keyword",
+    "picker.keywordHelp": "One word that describes the picture. You will use it to find the image later.",
+    "picker.preview": "Preview",
+    "picker.saved": "Image saved.",
+    "picker.errorNoImage": "Choose an SVG file, paste SVG code, or upload a photo.",
+    "picker.errorBadSvg": "That doesn't look like a valid SVG. Check that it starts with <svg and ends with </svg>.",
+    "picker.errorNoViewBox": "This SVG has no viewBox, so it can't be resized. Try another file, or copy the full SVG code.",
+    "picker.errorSvgTooBig": "That SVG is {kb} KB, over the {max} KB limit. Try shrinking it at svgomg.net.",
+    "picker.errorNoKeyword": "Type a keyword so you can find this image later.",
+    
     // ---- Card Library ----
     "library.title": "Card Library",
     "library.searchPlaceholder": "Search by name or keyword",
