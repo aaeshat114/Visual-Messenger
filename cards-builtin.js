@@ -229,3 +229,42 @@ export function searchCards(cards, query = "", category = "all") {
     return words.every((w) => haystack.includes(w));
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// Premade IMAGES (used by the image picker)
+// ---------------------------------------------------------------------------
+// Every premade card also gives us one premade image: its emoji, with the card's
+// label and keywords as search words. They are built from BUILTIN_CARDS above, so
+// there is nothing to keep in sync. When you later add your own SVG images, they
+// appear in the picker next to these.
+//
+// Image shape (the same fields are used for your own images, see app.js):
+//   { id, kind, emoji | dataUrl, keyword, keywords?, builtIn }
+//   kind = "emoji" for these. "svg" and "photo" are your own images.
+//   id   = "builtin:<card id>", e.g. "builtin:pizza". It can never collide with an
+//          id from Firestore (those have no colon).
+export const BUILTIN_IMAGES = Object.freeze(
+  BUILTIN_CARDS.map((c) =>
+    Object.freeze({
+      id: "builtin:" + c.id,
+      kind: "emoji",
+      emoji: c.emoji,
+      keyword: c.label.toLowerCase(),
+      keywords: Object.freeze([c.label.toLowerCase(), ...c.keywords]),
+      builtIn: true,
+    })
+  )
+);
+
+// Filter any list of images (premade and your own together) by a search string.
+// Every typed word must match the image's keyword or, for premade ones, one of its
+// extra keywords. So "dinner" finds the pizza image, and an empty search shows everything.
+export function searchImages(images, query = "") {
+  const words = normalize(query).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return images;
+  return images.filter((img) => {
+    const haystack = normalize([img.keyword, ...(img.keywords || [])].join(" "));
+    return words.every((w) => haystack.includes(w));
+  });
+}
