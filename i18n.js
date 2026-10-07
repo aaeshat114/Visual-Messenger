@@ -157,8 +157,15 @@ export const STRINGS = {
     "child.back": "Back",
     "child.submitFailed": "Oops, that didn't send. Try again!",
     "child.selected": "Selected",
-    "child.signOutHold": "Grown-ups: hold for 2 seconds to sign out",
-
+        "child.signOutHold": "Grown-ups: hold for 2 seconds to open settings",
+    "compose.sendTo": "Send to",
+    "compose.everyone": "Everyone",
+    "compose.errorNeedKid": "Pick at least one child to send to.",
+    "parent.for": "For {name}",
+    "parent.answeredBy": "Answered by {name}",
+    "pair.kid.nameLabel": "Your name",
+    "pair.kid.namePlaceholder": "e.g. Mia",
+    
     // ---- Settings ----
     "settings.title": "Settings",
     "settings.displayName": "Display name",
