@@ -524,8 +524,9 @@ export async function createQuestion(familyId, { text, allowMultiple, options, t
   return ref.id;
 }
 
+// Cancelling deletes the question: cancelled questions are not kept.
 export async function cancelQuestion(familyId, questionId) {
-  await write(() => updateDoc(questionRef(familyId, questionId), { status: "cancelled" }));
+  await write(() => deleteDoc(questionRef(familyId, questionId)));
 }
 
 // Bumps nudgeCount by 1 (increment() is applied on the server, so two nudges
@@ -546,6 +547,35 @@ export async function answerQuestion(familyId, questionId, { selectedKeys, text 
     answeredBy: getUid(),
     answer: { selectedKeys, text: text ? text : null },
   }));
+}
+
+
+// Delete one question (used by the Delete button on answered questions).
+export async function deleteQuestion(familyId, questionId) {
+  await write(() => deleteDoc(questionRef(familyId, questionId)));
+}
+
+// Housekeeping, run by the parent's app: delete answered questions that were answered more than
+// olderThanMs ago, plus any cancelled questions still saved from before cancelling started to delete.
+// It never shows an error message (it is background work): on a failure it simply stops.
+// Returns how many questions it deleted.
+export async function deleteOldQuestions(familyId, olderThanMs) {
+  let deleted = 0;
+  try {
+    const cutoff = new Date(Date.now() - olderThanMs);
+    // Answered before the cutoff. This is a one-field query, so no index is needed. Questions that
+    // are still waiting have no answer time, so they never match.
+    const old = await getDocs(query(questionsCol(familyId), where("answeredAt", "<", cutoff)));
+    // Cancelled questions are not kept at all.
+    const cancelled = await getDocs(query(questionsCol(familyId), where("status", "==", "cancelled")));
+    for (const snap of [...old.docs, ...cancelled.docs]) {
+      await deleteDoc(snap.ref);
+      deleted++;
+    }
+  } catch (err) {
+    console.warn("History cleanup stopped early:", err);
+  }
+  return deleted;
 }
 
 // PARENT: the newest questions of every status, newest first.
