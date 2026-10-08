@@ -71,6 +71,12 @@ export const IMAGE_QUALITY = 0.8;               // WebP quality, 0 to 1
 export const IMAGE_MAX_BYTES = 900 * 1024;      // reject anything larger after downscaling
                                                 // (Firestore docs cap at 1 MiB, so this leaves headroom)
 
+
+// History: answered and cancelled questions are deleted after this many days.
+// The parent's app does the cleanup, so it happens when a parent opens the app.
+export const HISTORY_KEEP_DAYS = 3;
+export const HISTORY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;   // while the app stays open, check again every 6 hours
+
 // SVG images (icons from sites like Flaticon) are text, so they get their own, smaller limit.
 export const IMAGE_SVG_MAX_BYTES = 100 * 1024;  // reject SVG files larger than 100 KB
 
