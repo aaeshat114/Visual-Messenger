@@ -447,6 +447,20 @@ export function subscribeImages(familyId, onData) {
   return listen([{ build: () => imagesCol(familyId), sort: (items) => items.sort(newestFirst) }], onData);
 }
 
+// Change an image's keyword (the one word used to find it in the picker).
+export async function updateImageKeyword(familyId, imageId, keyword) {
+  await write(() => updateDoc(doc(db, "families", familyId, "images", imageId), {
+    keyword: String(keyword || "").trim().toLowerCase(),
+  }));
+}
+
+// Delete one image. Cards and questions that point at it are NOT changed: they keep their
+// reference, and wherever the picture can no longer be found they show a plain placeholder.
+export async function deleteImage(familyId, imageId) {
+  await write(() => deleteDoc(doc(db, "families", familyId, "images", imageId)));
+  imageCache.delete(`${familyId}/${imageId}`);     // forget our remembered copy of the picture
+}
+
 // Images are fetched on demand and remembered, so each image costs at most one
 // Firestore read per device, and none once it's in the offline cache.
 const imageCache = new Map();
