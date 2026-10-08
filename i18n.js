@@ -66,6 +66,8 @@ export const STRINGS = {
     "parent.nudge": "Nudge",
     "parent.cancelQuestion": "Cancel",
     "parent.cancelConfirm": "Cancel this question? Your child will no longer see it.",
+    "parent.deleteConfirm": "Delete this question from the history? Your child will no longer see it in their answers either.",
+    "parent.deleted": "Deleted.",
     "parent.duplicate": "Duplicate",
     "parent.nudged": "Nudged {count}×",
     "parent.chose": "Chose:",
