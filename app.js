@@ -103,6 +103,7 @@ const state = {
 
 const stops = [];               // unsubscribe functions for every live listener
 let nudgeTimer = null;
+let cleanupTimer = null;
 let confettiRun = 0;
 
 const $ = (id) => document.getElementById(id);
@@ -320,6 +321,7 @@ function enterHome(familyId, role) {
 
 function startParent() {
   showScreen("parent");
+  startHistoryCleanup();
   stops.push(fb.subscribeAllQuestions(state.familyId, (items) => {
     state.questions = items;
     renderParentHome();
@@ -342,6 +344,21 @@ function startParent() {
     if (!$("screen-compose").hidden) renderRecipients();
   }));
   updateInstallBanner();
+}
+
+// ---- Housekeeping: old answered questions are deleted after HISTORY_KEEP_DAYS days ----
+// Runs when a parent opens the app, then every HISTORY_CLEANUP_INTERVAL_MS while it stays open.
+// It also removes any cancelled questions that were saved before cancelling started to delete.
+async function cleanupOldQuestions() {
+  if (!fb || !state.familyId) return;
+  const deleted = await fb.deleteOldQuestions(state.familyId, HISTORY_KEEP_DAYS * 24 * 60 * 60 * 1000);
+  if (deleted > 0) console.info(`History cleanup: deleted ${deleted} old question(s).`);
+}
+
+function startHistoryCleanup() {
+  cleanupOldQuestions();
+  clearInterval(cleanupTimer);
+  cleanupTimer = setInterval(cleanupOldQuestions, HISTORY_CLEANUP_INTERVAL_MS);
 }
 
 function renderParentHome() {
@@ -424,6 +441,16 @@ function buildQuestionCard(q) {
   } else {
     duplicateBtn.hidden = false;
     duplicateBtn.addEventListener("click", () => openCompose(q));
+        // Delete removes the question from the history (and from the kid's "Your answers" list).
+    const deleteBtn = card.querySelector(".js-delete");
+    deleteBtn.hidden = false;
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm(t("parent.deleteConfirm"))) return;
+      try {
+        await fb.deleteQuestion(state.familyId, q.id);
+        toast(t("parent.deleted"));
+      } catch (_) { /* toast already shown by firebase.js */ }
+    });
   }
   return card;
 }
@@ -1316,6 +1343,7 @@ function stopEverything() {
   stops.forEach((stop) => stop());
   stops.length = 0;
   clearInterval(nudgeTimer);
+  clearInterval(cleanupTimer);
 }
 
 // ---------------------------------------------------------------------------
