@@ -147,6 +147,20 @@ export const STRINGS = {
     "picker.errorNoViewBox": "This SVG has no viewBox, so it can't be resized. Try another file, or copy the full SVG code.",
     "picker.errorSvgTooBig": "That SVG is {kb} KB, over the {max} KB limit. Try shrinking it at svgomg.net.",
     "picker.errorNoKeyword": "Type a keyword so you can find this image later.",
+
+    
+    // ---- Library: tabs, images, editing ----
+    "library.tabCards": "Cards",
+    "library.tabImages": "Images",
+    "library.myImage": "My image",
+    "library.searchImagesPlaceholder": "Search images by keyword",
+    "library.noImages": "No images match.",
+    "imageEdit.title": "Edit image",
+    "imageEdit.saved": "Image updated.",
+    "imageEdit.deleted": "Image deleted.",
+    "imageEdit.deleteConfirm": "Delete this image? Pictures in questions you already sent will disappear too.",
+    "imageEdit.deleteConfirmUsed": "Delete this image? {count} of your cards use it and will show a plain placeholder. Pictures in questions you already sent will disappear too.",
+    "cardSheet.image": "Image",
     
     // ---- Card Library ----
     "library.title": "Card Library",
