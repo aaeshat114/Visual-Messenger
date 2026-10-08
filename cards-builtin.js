@@ -1,204 +1,115 @@
 // cards-builtin.js
 // ---------------------------------------------------------------------------
-// ~120 ready-made answer cards. They ship inside the app, so using them costs
-// zero Firestore reads and works offline.
+// The premade cards and premade images, built from YOUR list in cards-data.js.
+// You normally never edit this file: add, change or remove cards in cards-data.js.
 //
-// Each card has the shape:
-//   { id, label, emoji, keywords: [], category }
-// plus two fields (builtIn, imageRef) so built-in and custom cards look the
-// same to the rest of the app.
+// A premade card has the same shape as a card you make in the app, plus a picture:
+//   { id, label, emoji, imageRef, imageData, keywords, category, builtIn }
+//     emoji     always "" (premade pictures are SVGs now)
+//     imageRef  always null (the picture is not stored in Firestore)
+//     imageData the SVG as a ready-to-use data URL: "data:image/svg+xml;base64,..."
+//     builtIn   true
 //
-// Built-in ids are short words like "pizza". Custom cards use Firestore's
-// auto-generated 20-character ids, so the two can never collide in practice.
-//
-// Labels are English here. To translate one, add a "card.<id>" key to a locale
-// in i18n.js (e.g. "card.pizza": "Pizza"). tCard() picks it up.
+// When a premade card is put into a question, imageData is copied into the question
+// (see toOption in app.js), so a kid's phone never needs this file to draw it.
 // ---------------------------------------------------------------------------
 
-import { tCard } from "./i18n.js";
+import { t, tCard } from "./i18n.js";
+import { PREMADE_CARDS, PREMADE_CATEGORIES } from "./cards-data.js";
 
-// Small helper so the table below stays one card per line and easy to edit.
-// Argument order: id, label, emoji, category, keywords.
-const card = (id, label, emoji, category, keywords) =>
-  Object.freeze({
-    id,
-    label,
-    emoji,
-    keywords: Object.freeze(keywords),
-    category,
-    builtIn: true,
-    imageRef: null, // built-ins use an emoji, never a photo
+const SVG_WARN_BYTES = 30 * 1024;      // log a warning above this size (questions carry a copy of the picture)
+
+// ---------------------------------------------------------------------------
+// Turning your SVG code into a picture the browser can draw
+// ---------------------------------------------------------------------------
+
+// An SVG shown with <img> must declare its XML namespace, or the browser draws nothing.
+// Icon sites usually include it; if yours doesn't, we add it here.
+function ensureNamespace(svg) {
+  return /<svg(?![^>]*\sxmlns=)/i.test(svg)
+    ? svg.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"')
+    : svg;
+}
+
+// SVG text -> "data:image/svg+xml;base64,..." (an <img> can show it directly).
+// btoa() only handles plain characters, so the text is turned into bytes first.
+// That keeps accents and symbols inside the SVG safe.
+function svgToDataUrl(svg) {
+  const bytes = new TextEncoder().encode(svg);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return "data:image/svg+xml;base64," + btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
+// Building the cards (cards with a mistake are skipped, with a message in the console)
+// ---------------------------------------------------------------------------
+
+const ID_RE = /^[a-z0-9][a-z0-9-]*$/;       // lower case letters, numbers, hyphens
+
+function buildCards() {
+  const seen = new Set();
+  const cards = [];
+
+  PREMADE_CARDS.forEach((raw, index) => {
+    const where = `cards-data.js, card #${index + 1}${raw && raw.id ? ` ("${raw.id}")` : ""}`;
+    let problem = null;
+    if (!raw || typeof raw !== "object") problem = "it is not a card";
+    else if (typeof raw.id !== "string" || !ID_RE.test(raw.id)) problem = "id must be lower case letters, numbers and hyphens, with no spaces";
+    else if (seen.has(raw.id)) problem = "this id is already used by another card";
+    else if (typeof raw.label !== "string" || !raw.label.trim()) problem = "it has no label";
+    else if (typeof raw.svg !== "string" || !/<svg[\s>]/i.test(raw.svg)) problem = "the svg must contain the code from <svg to </svg>";
+    else if (!/viewBox\s*=/i.test(raw.svg)) problem = "the svg has no viewBox, so it cannot be scaled";
+    if (problem) {
+      console.warn(`[premade cards] Skipped ${where}: ${problem}.`);
+      return;
+    }
+
+    const svg = ensureNamespace(raw.svg.trim());
+    const bytes = new TextEncoder().encode(svg).length;
+    if (bytes > SVG_WARN_BYTES) {
+      console.warn(`[premade cards] ${where} is ${Math.round(bytes / 1024)} KB. Large pictures make questions heavy; consider shrinking it at svgomg.net.`);
+    }
+
+    seen.add(raw.id);
+    cards.push(Object.freeze({
+      id: raw.id,
+      label: raw.label.trim(),
+      emoji: "",
+      imageRef: null,
+      imageData: svgToDataUrl(svg),
+      keywords: Object.freeze((raw.keywords || []).map((k) => String(k).toLowerCase())),
+      category: raw.category || "",
+      builtIn: true,
+    }));
   });
 
-// Category ids in the order the Card Library filter should show them.
-// Their display names are the "category.<id>" keys in i18n.js.
-export const BUILTIN_CATEGORIES = Object.freeze([
-  "food",
-  "drinks",
-  "play",
-  "outdoors",
-  "screens",
-  "creative",
-  "home",
-  "feelings",
-  "animals",
-  "places",
-]);
+  return Object.freeze(cards);
+}
 
-export const BUILTIN_CARDS = Object.freeze([
-  // ---- Food (14) ----
-  card("pizza", "Pizza", "🍕", "food", ["dinner", "cheese", "slice"]),
-  card("pasta", "Pasta", "🍝", "food", ["spaghetti", "noodles", "dinner"]),
-  card("sandwich", "Sandwich", "🥪", "food", ["lunch", "bread"]),
-  card("soup", "Soup", "🍲", "food", ["warm", "bowl", "lunch"]),
-  card("pancakes", "Pancakes", "🥞", "food", ["breakfast", "syrup", "waffles"]),
-  card("cereal", "Cereal", "🥣", "food", ["breakfast", "bowl", "milk"]),
-  card("apple", "Apple", "🍎", "food", ["fruit", "snack"]),
-  card("banana", "Banana", "🍌", "food", ["fruit", "snack"]),
-  card("grapes", "Grapes", "🍇", "food", ["fruit", "snack"]),
-  card("ice-cream", "Ice cream", "🍦", "food", ["dessert", "sweet", "cold", "treat"]),
-  card("cookie", "Cookie", "🍪", "food", ["biscuit", "dessert", "sweet", "treat"]),
-  card("popcorn", "Popcorn", "🍿", "food", ["snack", "movie"]),
-  card("fries", "Fries", "🍟", "food", ["chips", "potato", "snack"]),
-  card("toast", "Toast", "🍞", "food", ["breakfast", "bread", "butter"]),
+export const BUILTIN_CARDS = buildCards();
 
-  // ---- Drinks (8) ----
-  card("water", "Water", "💧", "drinks", ["thirsty", "drink", "glass"]),
-  card("milk", "Milk", "🥛", "drinks", ["drink", "glass", "cow"]),
-  card("juice", "Juice", "🧃", "drinks", ["drink", "box", "orange", "apple"]),
-  card("hot-chocolate", "Hot chocolate", "☕", "drinks", ["cocoa", "warm", "winter"]),
-  card("smoothie", "Smoothie", "🥤", "drinks", ["fruit", "shake", "cup"]),
-  card("lemonade", "Lemonade", "🍋", "drinks", ["lemon", "summer", "cold"]),
-  card("tea", "Tea", "🍵", "drinks", ["warm", "cup"]),
-  card("bubble-tea", "Bubble tea", "🧋", "drinks", ["boba", "tapioca", "treat"]),
+// The categories shown as filter buttons in the Card Library (in the order you listed them).
+export const BUILTIN_CATEGORIES = Object.freeze([...PREMADE_CATEGORIES]);
 
-  // ---- Play (14) ----
-  card("blocks", "Building blocks", "🧱", "play", ["lego", "build", "bricks", "toys"]),
-  card("puzzle", "Puzzle", "🧩", "play", ["jigsaw", "game", "think"]),
-  card("board-game", "Board game", "🎲", "play", ["dice", "game", "family"]),
-  card("card-game", "Card game", "🃏", "play", ["cards", "game", "uno"]),
-  card("teddy", "Teddy bear", "🧸", "play", ["stuffed", "toy", "cuddly"]),
-  card("toy-cars", "Toy cars", "🏎️", "play", ["cars", "race", "vroom", "toys"]),
-  card("toy-train", "Toy train", "🚂", "play", ["trains", "track", "choo choo", "toys"]),
-  card("dress-up", "Dress up", "🎭", "play", ["costume", "pretend", "role play"]),
-  card("hide-seek", "Hide and seek", "🙈", "play", ["hiding", "game", "find"]),
-  card("dance", "Dance", "💃", "play", ["music", "party", "move"]),
-  card("music", "Listen to music", "🎵", "play", ["songs", "sing", "tunes"]),
-  card("kite", "Fly a kite", "🪁", "play", ["wind", "outside", "sky"]),
-  card("yo-yo", "Yo-yo", "🪀", "play", ["toy", "tricks"]),
-  card("magic", "Magic tricks", "🎩", "play", ["magician", "show", "tricks"]),
+// The display name of any category id. It uses the translation "category.<id>" from i18n.js
+// when there is one; otherwise the id itself with a capital letter ("snacks" -> "Snacks").
+export function categoryName(id) {
+  const key = "category." + id;
+  const text = t(key);
+  return text !== key ? text : id.charAt(0).toUpperCase() + id.slice(1);
+}
 
-  // ---- Outdoors (14) ----
-  card("playground", "Playground", "🛝", "outdoors", ["park", "slide", "swings"]),
-  card("bike", "Ride a bike", "🚲", "outdoors", ["bicycle", "cycling", "wheels"]),
-  card("scooter", "Scooter", "🛴", "outdoors", ["ride", "wheels"]),
-  card("swimming", "Swimming", "🏊", "outdoors", ["pool", "water", "swim"]),
-  card("soccer", "Soccer", "⚽", "outdoors", ["football", "ball", "kick", "sport"]),
-  card("basketball", "Basketball", "🏀", "outdoors", ["ball", "hoops", "sport"]),
-  card("hiking", "Go for a hike", "🥾", "outdoors", ["walk", "trail", "nature"]),
-  card("picnic", "Picnic", "🧺", "outdoors", ["basket", "lunch", "park"]),
-  card("beach", "Beach", "🏖️", "outdoors", ["sand", "sea", "ocean", "summer"]),
-  card("snowman", "Snow play", "⛄", "outdoors", ["winter", "snowman", "sledding", "cold"]),
-  card("gardening", "Gardening", "🌻", "outdoors", ["plants", "flowers", "dirt", "grow"]),
-  card("fishing", "Fishing", "🎣", "outdoors", ["fish", "lake", "rod"]),
-  card("camping", "Camping", "⛺", "outdoors", ["tent", "campfire", "night"]),
-  card("skating", "Ice skating", "⛸️", "outdoors", ["ice", "rink", "winter", "skates"]),
-
-  // ---- Screens (8) ----
-  card("tv", "Watch TV", "📺", "screens", ["television", "show", "cartoons"]),
-  card("movie", "Watch a movie", "🎬", "screens", ["film", "cinema", "show"]),
-  card("video-game", "Video games", "🎮", "screens", ["gaming", "console", "controller"]),
-  card("tablet", "Tablet time", "📱", "screens", ["ipad", "phone", "screen"]),
-  card("computer", "Computer", "💻", "screens", ["laptop", "screen", "typing"]),
-  card("headphones", "Headphones", "🎧", "screens", ["listen", "audio", "podcast", "music"]),
-  card("video-call", "Video call", "📞", "screens", ["call", "phone", "grandma", "friends", "facetime"]),
-  card("photos", "Take photos", "📷", "screens", ["camera", "pictures", "selfie"]),
-
-  // ---- Creative (12) ----
-  card("drawing", "Drawing", "✏️", "creative", ["pencil", "sketch", "art"]),
-  card("painting", "Painting", "🎨", "creative", ["paint", "art", "brush", "colors"]),
-  card("colouring", "Colouring", "🖍️", "creative", ["coloring", "crayons", "markers", "art"]),
-  card("crafts", "Arts and crafts", "✂️", "creative", ["scissors", "glue", "make", "cut"]),
-  card("clay", "Play dough", "🏺", "creative", ["clay", "playdough", "mould", "sculpt"]),
-  card("reading", "Read a book", "📖", "creative", ["story", "book", "quiet"]),
-  card("origami", "Paper folding", "🦢", "creative", ["origami", "paper", "fold"]),
-  card("singing", "Singing", "🎤", "creative", ["songs", "karaoke", "voice"]),
-  card("piano", "Play piano", "🎹", "creative", ["keyboard", "music", "instrument"]),
-  card("guitar", "Play guitar", "🎸", "creative", ["music", "instrument", "strings"]),
-  card("baking", "Baking", "🧁", "creative", ["cupcakes", "cake", "kitchen", "cooking"]),
-  card("science", "Science experiment", "🔬", "creative", ["experiment", "lab", "discover"]),
-
-  // ---- Home (14) ----
-  card("nap", "Nap", "😴", "home", ["sleep", "rest", "quiet time"]),
-  card("bath", "Bath", "🛁", "home", ["wash", "bubbles", "tub"]),
-  card("bed", "Go to bed", "🛏️", "home", ["bedtime", "sleep", "night"]),
-  card("shower", "Shower", "🚿", "home", ["wash", "clean"]),
-  card("brush-teeth", "Brush teeth", "🪥", "home", ["toothbrush", "dentist", "clean", "morning"]),
-  card("get-dressed", "Get dressed", "👕", "home", ["clothes", "outfit", "morning"]),
-  card("shoes", "Put on shoes", "👟", "home", ["sneakers", "leave", "go out"]),
-  card("homework", "Homework", "📝", "home", ["school", "work", "study"]),
-  card("tidy-up", "Tidy up", "🧹", "home", ["clean", "chores", "sweep", "mess"]),
-  card("cuddle", "Cuddle", "🤗", "home", ["hug", "snuggle", "love"]),
-  card("family-time", "Family time", "👨‍👩‍👧", "home", ["together", "parents", "kids"]),
-  card("stay-home", "Stay home", "🏠", "home", ["house", "inside", "relax"]),
-  card("cooking", "Cook together", "🍳", "home", ["kitchen", "help", "meal"]),
-  card("bedtime-story", "Bedtime story", "🌙", "home", ["night", "read", "moon", "sleep"]),
-
-  // ---- Feelings (12) ----
-  card("happy", "Happy", "😊", "feelings", ["smile", "good", "joy"]),
-  card("sad", "Sad", "😢", "feelings", ["cry", "upset", "down"]),
-  card("angry", "Angry", "😠", "feelings", ["mad", "cross", "frustrated"]),
-  card("tired", "Tired", "🥱", "feelings", ["sleepy", "yawn", "exhausted"]),
-  card("scared", "Scared", "😨", "feelings", ["afraid", "frightened", "worried"]),
-  card("excited", "Excited", "🤩", "feelings", ["thrilled", "wow", "cant wait"]),
-  card("silly", "Silly", "🤪", "feelings", ["goofy", "funny", "playful"]),
-  card("hungry", "Hungry", "😋", "feelings", ["yummy", "food", "starving"]),
-  card("sick", "Not feeling well", "🤒", "feelings", ["ill", "fever", "poorly", "hurt"]),
-  card("bored", "Bored", "😐", "feelings", ["nothing to do", "meh"]),
-  card("proud", "Proud", "🥳", "feelings", ["celebrate", "achievement", "party"]),
-  card("loved", "Loved", "❤️", "feelings", ["love", "heart", "care"]),
-
-  // ---- Animals (12) ----
-  card("dog", "Dog", "🐶", "animals", ["puppy", "pet", "walk"]),
-  card("cat", "Cat", "🐱", "animals", ["kitten", "pet", "meow"]),
-  card("rabbit", "Rabbit", "🐰", "animals", ["bunny", "pet", "hop"]),
-  card("bird", "Bird", "🐦", "animals", ["tweet", "fly", "feathers"]),
-  card("fish", "Fish", "🐠", "animals", ["aquarium", "swim", "pet"]),
-  card("horse", "Horse", "🐴", "animals", ["pony", "riding", "farm"]),
-  card("cow", "Cow", "🐮", "animals", ["farm", "moo", "milk"]),
-  card("duck", "Duck", "🦆", "animals", ["pond", "quack", "feed"]),
-  card("butterfly", "Butterfly", "🦋", "animals", ["insect", "garden", "wings"]),
-  card("dinosaur", "Dinosaur", "🦖", "animals", ["dino", "trex", "roar", "museum"]),
-  card("elephant", "Elephant", "🐘", "animals", ["zoo", "trunk", "big"]),
-  card("lion", "Lion", "🦁", "animals", ["zoo", "roar", "big cat"]),
-
-  // ---- Places (12) ----
-  card("school", "School", "🏫", "places", ["class", "teacher", "learn"]),
-  card("library", "Library", "📚", "places", ["books", "reading", "borrow"]),
-  card("grandparents", "Grandparents' house", "🏡", "places", ["grandma", "grandpa", "visit", "nana"]),
-  card("friends-house", "Friend's house", "🏘️", "places", ["playdate", "visit", "friends", "sleepover"]),
-  card("zoo", "Zoo", "🦓", "places", ["animals", "trip", "visit"]),
-  card("museum", "Museum", "🏛️", "places", ["trip", "history", "visit", "exhibit"]),
-  card("shop", "Go shopping", "🛒", "places", ["store", "supermarket", "groceries", "buy"]),
-  card("restaurant", "Restaurant", "🍽️", "places", ["eat out", "dinner", "cafe"]),
-  card("cinema", "Cinema", "🎟️", "places", ["movies", "theatre", "film", "tickets"]),
-  card("farm", "Farm", "🚜", "places", ["tractor", "animals", "country"]),
-  card("aquarium", "Aquarium", "🐙", "places", ["fish", "sea life", "octopus", "trip"]),
-  card("fun-fair", "Fun fair", "🎡", "places", ["amusement park", "rides", "ferris wheel", "carnival"]),
-]);
-
-// ---------------------------------------------------------------------------
-// Helpers (used by the Compose picker and the Card Library)
-// ---------------------------------------------------------------------------
-
-// Fast lookup by id. Useful for "duplicate to my cards" and for rebuilding
-// chips. Note: sent questions never need this, because option display data is
-// copied into the question document when it is created.
-const BY_ID = new Map(BUILTIN_CARDS.map((c) => [c.id, c]));
+// Fast lookup by id (for example "smile").
+const CARD_BY_ID = new Map(BUILTIN_CARDS.map((c) => [c.id, c]));
 
 export function getBuiltinCard(id) {
-  return BY_ID.get(id) || null;
+  return CARD_BY_ID.get(id) || null;
 }
+
+// ---------------------------------------------------------------------------
+// Searching cards
+// ---------------------------------------------------------------------------
 
 // Lowercase and strip accents so "Café" matches "cafe".
 // normalize("NFD") splits "é" into "e" + an accent mark; the regex removes the mark.
@@ -207,11 +118,11 @@ function normalize(text) {
 }
 
 // Filter a list of cards by a search string and/or category.
-// Works on built-in cards AND the family's custom cards (same shape), so the
-// caller can pass [...BUILTIN_CARDS, ...customCards].
+// Works on premade cards AND the family's own cards (same shape), so the
+// caller can pass [...ownCards, ...BUILTIN_CARDS].
 //
-//   searchCards(cards, "pizza")                 -> cards whose label/keyword contains "pizza"
-//   searchCards(cards, "ice cr", "food")        -> only the food category
+//   searchCards(cards, "pizza")             -> cards whose label/keyword contains "pizza"
+//   searchCards(cards, "ice cr", "food")    -> only the food category
 //
 // Every word the user typed must match somewhere in the label or keywords,
 // so "ice cold" finds a card tagged "ice" and "cold" even if not adjacent.
@@ -222,7 +133,7 @@ export function searchCards(cards, query = "", category = "all") {
     if (category !== "all" && c.category !== category) return false;
     if (words.length === 0) return true;
 
-    // Search the translated label, the English label and all keywords.
+    // Search the translated label, the original label and all keywords.
     const haystack = normalize(
       [tCard(c), c.label, ...(c.keywords || [])].join(" ")
     );
@@ -230,26 +141,23 @@ export function searchCards(cards, query = "", category = "all") {
   });
 }
 
-
 // ---------------------------------------------------------------------------
-// Premade IMAGES (used by the image picker)
+// Premade IMAGES (used by the image picker and the library's Images tab)
 // ---------------------------------------------------------------------------
-// Every premade card also gives us one premade image: its emoji, with the card's
-// label and keywords as search words. They are built from BUILTIN_CARDS above, so
-// there is nothing to keep in sync. When you later add your own SVG images, they
-// appear in the picker next to these.
+// Every premade card also gives one premade image: its SVG, searchable by the card's
+// label and keywords. They are built from BUILTIN_CARDS above, so there is nothing to
+// keep in sync. When you pick one for a card of your own, the card remembers the id.
 //
 // Image shape (the same fields are used for your own images, see app.js):
-//   { id, kind, emoji | dataUrl, keyword, keywords?, builtIn }
-//   kind = "emoji" for these. "svg" and "photo" are your own images.
-//   id   = "builtin:<card id>", e.g. "builtin:pizza". It can never collide with an
-//          id from Firestore (those have no colon).
+//   { id, kind, dataUrl, keyword, keywords?, builtIn }
+//   id = "builtin:<card id>", e.g. "builtin:smile". It can never collide with an id
+//        from Firestore (those have no colon).
 export const BUILTIN_IMAGES = Object.freeze(
   BUILTIN_CARDS.map((c) =>
     Object.freeze({
       id: "builtin:" + c.id,
-      kind: "emoji",
-      emoji: c.emoji,
+      kind: "svg",
+      dataUrl: c.imageData,
       keyword: c.label.toLowerCase(),
       keywords: Object.freeze([c.label.toLowerCase(), ...c.keywords]),
       builtIn: true,
@@ -257,9 +165,18 @@ export const BUILTIN_IMAGES = Object.freeze(
   )
 );
 
+const IMAGE_BY_ID = new Map(BUILTIN_IMAGES.map((img) => [img.id, img]));
+
+// The picture (a data URL) for an id like "builtin:smile", or null if there is no such card.
+// Cards of your own can point at a premade picture this way.
+export function getBuiltinImageData(id) {
+  const image = IMAGE_BY_ID.get(id);
+  return image ? image.dataUrl : null;
+}
+
 // Filter any list of images (premade and your own together) by a search string.
-// Every typed word must match the image's keyword or, for premade ones, one of its
-// extra keywords. So "dinner" finds the pizza image, and an empty search shows everything.
+// Every typed word must match the image's keyword or one of its extra keywords.
+// So "dinner" finds the pizza image, and an empty search shows everything.
 export function searchImages(images, query = "") {
   const words = normalize(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return images;
