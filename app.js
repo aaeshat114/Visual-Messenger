@@ -33,7 +33,16 @@ import {
   LS_PUSH_BANNER_DISMISSED,
 } from "./config.js";
 import { t, tCard, applyTranslations } from "./i18n.js";
-import { BUILTIN_CARDS, BUILTIN_CATEGORIES, BUILTIN_IMAGES, searchCards, searchImages } from "./cards-builtin.js";
+import {
+  BUILTIN_CARDS,
+  BUILTIN_CATEGORIES,
+  BUILTIN_IMAGES,
+  searchCards,
+  searchImages,
+  categoryName,
+  getBuiltinCard,
+  getBuiltinImageData,
+} from "./cards-builtin.js";
 
 // ---------------------------------------------------------------------------
 // 1. State and helpers
@@ -121,19 +130,32 @@ function cloneTemplate(id) {
   return fragment;
 }
 
-// Draw an emoji and/or a photo or SVG into `el`. An emoji shows straight away; if the
-// card has an image it is fetched (and cached by firebase.js) and swapped in.
-function setVisual(el, { emoji, imageRef }) {
+// Put a picture (a data URL) into `el`.
+function drawImage(el, src) {
+  const img = document.createElement("img");
+  img.alt = "";
+  img.decoding = "async";
+  img.src = src;
+  el.replaceChildren(img);
+}
+
+// Draw a card's or option's picture into `el`. The order of preference:
+//   1. imageData: the picture came with the data itself (a premade card, or a copy stored in a question)
+//   2. imageRef "builtin:<id>": a premade picture, looked up in cards-data.js
+//   3. imageRef: your own image, fetched from Firestore (and cached by firebase.js)
+//   4. emoji, or a star as a plain placeholder
+function setVisual(el, { emoji, imageRef, imageData }) {
   el.replaceChildren();
-  el.textContent = emoji || (imageRef ? "" : "⭐");     // no star flash while an image loads
+  const isBuiltinRef = !!imageRef && imageRef.startsWith("builtin:");
+  const direct = imageData || (isBuiltinRef ? getBuiltinImageData(imageRef) : null);
+  if (direct) { drawImage(el, direct); return; }
+  if (isBuiltinRef) { el.textContent = emoji || "⭐"; return; }       // that premade card no longer exists
+
+  el.textContent = emoji || (imageRef ? "" : "⭐");                    // no star flash while an image loads
   if (!imageRef || !fb || !state.familyId) return;
   fb.getImage(state.familyId, imageRef).then((dataUrl) => {
-    if (!dataUrl) { el.textContent = emoji || "⭐"; return; }   // image document is gone: placeholder
-    const img = document.createElement("img");
-    img.alt = "";
-    img.decoding = "async";
-    img.src = dataUrl;
-    el.replaceChildren(img);
+    if (!dataUrl) { el.textContent = emoji || "⭐"; return; }          // image document is gone: placeholder
+    drawImage(el, dataUrl);
   }).catch(() => { el.textContent = emoji || "⭐"; });
 }
 
@@ -143,7 +165,7 @@ function optionLabel(option) {
   return option.key === ELSE_KEY ? t("child.somethingElse") : option.label;
 }
 
-// Label for a card (built-in cards are translatable, custom ones are used as typed).
+// Label for a card (premade cards are translatable, custom ones are used as typed).
 function cardLabel(card) {
   return card.builtIn ? tCard(card) : card.label;
 }
@@ -461,7 +483,9 @@ function openCompose(prefill) {
     c.allowMultiple = !!prefill.allowMultiple;
     for (const o of prefill.options || []) {
       if (o.key === ELSE_KEY) c.somethingElse = true;
-      else c.options.push({ key: o.key, label: o.label, emoji: o.emoji || "", imageRef: o.imageRef || null });
+      else c.options.push({
+        key: o.key, label: o.label, emoji: o.emoji || "", imageRef: o.imageRef || null, imageData: o.imageData || null,
+      });
     }
   }
 
@@ -524,8 +548,19 @@ function showComposeError(message) {
 }
 
 // The shape stored inside a question: a full copy of what the child needs to display.
+// A premade picture is copied in as imageData (an SVG data URL), so the kid's phone never has to
+// look it up. A card of your own that points at a premade picture ("builtin:...") gets the same treatment.
 function toOption(card) {
-  return { key: card.id, label: cardLabel(card), emoji: card.emoji || "", imageRef: card.imageRef || null };
+  const ref = card.imageRef || null;
+  const imageData = card.imageData
+    || (ref && ref.startsWith("builtin:") ? getBuiltinImageData(ref) : null);
+  return {
+    key: card.id,
+    label: cardLabel(card),
+    emoji: card.emoji || "",
+    imageRef: imageData ? null : ref,
+    imageData: imageData || null,
+  };
 }
 
 // Tap a result tile: add it, or remove it if it is already chosen.
@@ -563,7 +598,7 @@ function renderChips() {
   $("compose-chips").replaceChildren(fragment);
 }
 
-// Cards matching what was typed in the card-name box: the family's own cards first, then the built-in set.
+// Cards matching what was typed in the card-name box: the family's own cards first, then the premade set.
 function renderResults() {
   const all = [...state.cards, ...BUILTIN_CARDS];
   const found = searchCards(all, $("compose-search").value, "all");
@@ -602,7 +637,7 @@ async function sendQuestion() {
   if (targets.length === 0) { showComposeError(t("compose.errorNeedKid")); return; }
 
   const options = c.options.map((o) => ({ ...o }));
-  if (c.somethingElse) options.push({ key: ELSE_KEY, label: t("child.somethingElse"), emoji: "💬", imageRef: null });
+  if (c.somethingElse) options.push({ key: ELSE_KEY, label: t("child.somethingElse"), emoji: "💬", imageRef: null, imageData: null });
 
   setSending(true);
   try {
@@ -627,23 +662,20 @@ async function sendQuestion() {
 // 4b. Card maker (label + image) and the image picker
 // ---------------------------------------------------------------------------
 // An IMAGE here is { id, kind, emoji?, dataUrl?, keyword }.
-//   kind "emoji": a premade image (id looks like "builtin:pizza", the emoji is in `emoji`)
-//   kind "svg" or "photo": your own image, saved in Firestore (id is the Firestore id,
-//                          the picture itself is in `dataUrl`)
-// A CARD is still { label, emoji, imageRef }: an emoji image fills `emoji`, an own image fills `imageRef`.
+//   id "builtin:<card id>": a premade picture from cards-data.js (kind "svg", picture in `dataUrl`)
+//   any other id:           your own image, saved in Firestore (kind "svg" or "photo", picture in `dataUrl`)
+//   kind "emoji":           an old-style emoji image (the emoji is in `emoji`); kept so nothing breaks
+// A CARD is { label, emoji, imageRef }: an emoji fills `emoji`, a picture fills `imageRef`.
+// Premade cards carry their picture directly as `imageData`.
 
 // Draw an image (emoji or picture) into an element, using data we already have.
 function paintImage(el, image) {
-  el.replaceChildren();
   if (image.kind === "emoji") {
+    el.replaceChildren();
     el.textContent = image.emoji;
     return;
   }
-  const img = document.createElement("img");
-  img.alt = "";
-  img.decoding = "async";
-  img.src = image.dataUrl;
-  el.replaceChildren(img);
+  drawImage(el, image.dataUrl);
 }
 
 // The row under the card-name box: the image picked so far, and the right buttons.
@@ -663,9 +695,27 @@ function renderDraft() {
 
 // Does this card already use this image? Used to avoid saving duplicate cards.
 function cardUsesImage(card, image) {
+  if (card.builtIn) return !!card.imageData && card.imageData === image.dataUrl;   // a premade card, drawn from its own SVG
   return image.kind === "emoji"
     ? !card.imageRef && card.emoji === image.emoji
     : card.imageRef === image.id;
+}
+
+// Premade pictures live in cards-data.js, a file you may edit later. A card of your own must not
+// depend on it, so the first time a premade picture is used its SVG is copied into your own images
+// (and re-used from there afterwards). Returns an image id that is safe to store in a card.
+// A reference that is not "builtin:..." is already your own and comes back unchanged.
+async function ownImageRef(ref) {
+  if (!ref || !ref.startsWith("builtin:")) return ref || null;
+  const dataUrl = getBuiltinImageData(ref);
+  if (!dataUrl) return null;                                                 // that premade card no longer exists
+  const existing = state.images.find((img) => img.dataUrl === dataUrl);
+  if (existing) return existing.id;
+  const card = getBuiltinCard(ref.slice("builtin:".length));
+  return fb.saveImage(state.familyId, {
+    dataUrl, w: null, h: null, kind: "svg",
+    keyword: ((card && card.label) || ref.slice("builtin:".length)).toLowerCase(),
+  });
 }
 
 // "Add to question": turn the typed name + picked image into a card and add it to the question.
@@ -690,10 +740,11 @@ async function addDraftCard() {
     button.disabled = true;
     try {
       // Save the new card to the family's cards, so it shows up in the search next time.
+      const imageRef = image.kind === "emoji" ? null : await ownImageRef(image.id);
       const data = {
         label,
         emoji: image.kind === "emoji" ? image.emoji : "",
-        imageRef: image.kind === "emoji" ? null : image.id,
+        imageRef,
         keywords: image.keyword ? [image.keyword] : [],
         category: "custom",
       };
@@ -810,10 +861,7 @@ function setNewImage(image) {
   state.picker.newImage = image;
   const preview = $("picker-preview");
   if (!image) { preview.replaceChildren(); return; }
-  const img = document.createElement("img");
-  img.alt = "";
-  img.src = image.dataUrl;
-  preview.replaceChildren(img);
+  drawImage(preview, image.dataUrl);
 }
 
 // Clean up SVG code and turn it into a data URL. Returns { dataUrl } or { error }.
@@ -1028,7 +1076,8 @@ async function saveCardFromSheet() {
   button.disabled = true;
   $("card-sheet-error").hidden = true;
   try {
-    const picture = { emoji: s.visual.emoji || "", imageRef: s.visual.imageRef || null };
+    // A premade picture is copied into your own images first, so the card never depends on cards-data.js.
+    const picture = { emoji: s.visual.emoji || "", imageRef: await ownImageRef(s.visual.imageRef || null) };
     let saved;
     if (s.card) {
       // Editing changes only the name and the picture; the card keeps its keywords and category.
@@ -1051,6 +1100,7 @@ async function saveCardFromSheet() {
 
 // ---- Card Library (Cards tab and Images tab) ----
 
+// The filter buttons: All, then your premade categories (from cards-data.js), then Custom.
 function buildLibraryFilters() {
   const box = $("library-filters");
   const fragment = document.createDocumentFragment();
@@ -1059,7 +1109,7 @@ function buildLibraryFilters() {
     button.type = "button";
     button.className = "filter-btn";
     button.dataset.category = category;
-    button.textContent = category === "all" ? t("library.allCategories") : t("category." + category);
+    button.textContent = category === "all" ? t("library.allCategories") : categoryName(category);
     button.setAttribute("aria-pressed", String(category === state.libFilter));
     button.addEventListener("click", () => {
       state.libFilter = category;
@@ -1106,14 +1156,15 @@ function renderLibraryCards() {
     tile.querySelector(".tile__badge").textContent = card.builtIn ? t("library.builtIn") : t("library.mine");
 
     if (card.builtIn) {
-      // Built-in cards are read-only; they can be copied into the family's own cards.
+      // Premade cards are read-only; they can be copied into the family's own cards.
       const duplicate = tile.querySelector(".js-duplicate");
       duplicate.hidden = false;
       duplicate.addEventListener("click", async () => {
         try {
+          const imageRef = await ownImageRef("builtin:" + card.id);   // copies the picture into your own images
           await fb.createCard(state.familyId, {
-            label: cardLabel(card), emoji: card.emoji, imageRef: null,
-            keywords: [...card.keywords], category: card.category,
+            label: cardLabel(card), emoji: "", imageRef,
+            keywords: [...card.keywords], category: card.category || "custom",
           });
           toast(t("library.duplicated"));
         } catch (_) { /* toast already shown */ }
