@@ -505,6 +505,7 @@ export async function createQuestion(familyId, { text, allowMultiple, options, t
     label: String(o.label),
     emoji: o.emoji || "",
     imageRef: o.imageRef || null,
+    imageData: o.imageData || null,       // a premade card's picture (SVG data URL), copied into the question
   }));
   const ref = await write(() => addDoc(questionsCol(familyId), {
     text,
