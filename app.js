@@ -8,7 +8,7 @@
 //   3. Parent: home list, nudging, install banner
 //   4. Parent: compose (who gets it, options, sending)
 //   4b. Card maker (label + image) and the image picker
-//   5. Card sheet (create/edit card) and Card Library
+//   5. Card sheet (create/edit card), Card Library (Cards and Images tabs), image editing
 //   6. Settings (parents and kids)
 //   7. Child: question, answers, confetti
 //   8. Event wiring and start-up
@@ -68,9 +68,16 @@ const state = {
     targets: new Set(),         // which kids get the question
     draftImage: null,           // the image picked for the card being made (or null)
   },
-  picker: { newImage: null },   // the image picker's "add new image" form
+  picker: {
+    newImage: null,             // the "add new image" form's current image
+    onPick: null,               // what to do when an image is chosen (set by whoever opened the picker)
+    keywordSeed: "",            // starting text for the keyword box of a new image
+    newOnly: false,             // true when opened straight on the "add new image" form (from the library)
+  },
+  libTab: "cards",              // library tab: "cards" or "images"
   libFilter: "all",
   sheet: null,                  // state of the open card sheet
+  imageEdit: null,              // the image open in the edit dialog
   installEvent: null,           // saved beforeinstallprompt event
   child: {
     qid: null,                  // id of the question currently drawn
@@ -298,10 +305,11 @@ function startParent() {
     if (!$("screen-compose").hidden) renderResults();
     if (!$("screen-library").hidden) renderLibrary();
   }));
-  // The family's own images (SVGs and photos), for the image picker.
+  // The family's own images (SVGs and photos), for the image picker and the library's Images tab.
   stops.push(fb.subscribeImages(state.familyId, (items) => {
     state.images = items;
     if ($("image-picker").open) renderPicker();
+    if (!$("screen-library").hidden && state.libTab === "images") renderLibrary();
   }));
   // Kids' names, live: a rename on a kid's device shows up here.
   stops.push(fb.subscribeMembers(state.familyId, (items) => {
@@ -707,19 +715,34 @@ async function addDraftCard() {
 }
 
 // ---- The picker dialog ----
+// One picker, used from three places: the compose screen, the card sheet, and the library's
+// "Add new image" button. Whoever opens it passes `onPick`, which is called with the chosen image.
 
-// "Pick image": needs a name first, then opens the picker.
+function openPicker(keywordSeed, onPick) {
+  state.picker.onPick = onPick || null;
+  state.picker.keywordSeed = keywordSeed || "";
+  state.picker.newOnly = false;
+  $("picker-search").value = "";
+  showPickerView("list");
+  renderPicker();
+  $("image-picker").showModal();
+}
+
+// Compose screen: "Pick image" needs a card name first.
 function openImagePicker() {
-  if (!$("compose-search").value.trim()) {
+  const name = $("compose-search").value.trim();
+  if (!name) {
     showComposeError(t("compose.needLabelFirst"));
     $("compose-search").focus();
     return;
   }
   $("compose-error").hidden = true;
-  $("picker-search").value = "";
-  showPickerView("list");
-  renderPicker();
-  $("image-picker").showModal();
+  openPicker(name, (image) => {
+    state.compose.draftImage = {
+      id: image.id, kind: image.kind, emoji: image.emoji, dataUrl: image.dataUrl, keyword: image.keyword,
+    };
+    renderDraft();
+  });
 }
 
 // The picker has two views in one dialog: the list of images, and the "add new image" form.
@@ -758,13 +781,11 @@ function renderPicker() {
   $("picker-empty").hidden = shown.length > 0;
 }
 
-// An image was chosen (from the list, or just saved): close the picker and show it in the card maker.
+// An image was chosen (from the list, or just saved): close the picker and hand it to whoever opened it.
 function pickImage(image) {
-  state.compose.draftImage = {
-    id: image.id, kind: image.kind, emoji: image.emoji, dataUrl: image.dataUrl, keyword: image.keyword,
-  };
+  const callback = state.picker.onPick;
   $("image-picker").close();
-  renderDraft();
+  if (callback) callback(image);
 }
 
 // ---- Adding a new image ----
@@ -774,7 +795,7 @@ function openNewImageView() {
   $("picker-svg-text").value = "";
   $("picker-photo").value = "";
   $("picker-error").hidden = true;
-  $("picker-keyword").value = $("compose-search").value.trim().toLowerCase();   // starts as the card name
+  $("picker-keyword").value = state.picker.keywordSeed.trim().toLowerCase();   // starts as the card name
   setNewImage(null);
   showPickerView("new");
 }
@@ -884,7 +905,7 @@ async function onPickerPhotoChosen(event) {
   }
 }
 
-// Save the new image to the family's images, then use it straight away.
+// Save the new image to the family's images, then hand it to whoever opened the picker.
 async function savePickerImage() {
   const p = state.picker;
   const keyword = $("picker-keyword").value.trim().toLowerCase();
@@ -919,63 +940,13 @@ async function savePickerImage() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Card sheet (create / edit) and Card Library
+// 5. Card sheet (create / edit), Card Library, and image editing
 // ---------------------------------------------------------------------------
-
-// A simple emoji grid for the card sheet.
-const EMOJIS = [
-  "🍕","🍔","🌭","🥪","🌮","🍝","🍜","🍣","🥗","🍳","🥞","🍞",
-  "🍎","🍌","🍓","🍉","🥕","🍪","🍰","🍦","🍫","🍿","🥛","🧃",
-  "⚽","🏀","🎾","🏊","🚲","🛴","⛺","🏖️","🎣","🥾","🏞️","🌳",
-  "🎮","📺","🎬","🎧","🎨","✏️","📚","🧩","🎲","🧸","🎹","🎸",
-  "🐶","🐱","🐰","🐴","🐠","🦋","🦖","🐘","🚗","🚂","✈️","🚀",
-  "🏠","🏫","🛁","🛏️","🧹","🛒","🎡","🎂","⭐","❤️","😊","🌈",
-];
 
 function dataUrlBytes(dataUrl) {
   const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
   const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
   return Math.floor((b64.length * 3) / 4) - padding;
-}
-
-// card = an existing custom card to edit, or null for a new one.
-// onSaved(card) is called with the saved card (or null when nothing needs to happen afterwards).
-function openCardSheet(card, onSaved) {
-  state.sheet = {
-    card,
-    emoji: card ? card.emoji || EMOJIS[0] : EMOJIS[0],
-    existingRef: card ? card.imageRef || null : null,
-    newImage: null,                            // { dataUrl, w, h, bytes } after a photo is chosen
-    onSaved: onSaved || null,
-  };
-  $("card-sheet-title").textContent = card ? t("cardSheet.titleEdit") : t("cardSheet.titleNew");
-  $("card-label").value = card ? card.label : "";
-  $("card-keywords").value = card ? (card.keywords || []).join(", ") : "";
-  $("card-category").value = card && card.category ? card.category : "custom";
-  $("card-photo").value = "";
-  $("card-sheet-error").hidden = true;
-  renderSheetPreview();
-  $("card-sheet").showModal();
-}
-
-function sheetError(message) {
-  $("card-sheet-error").textContent = message;
-  $("card-sheet-error").hidden = false;
-}
-
-function renderSheetPreview() {
-  const s = state.sheet;
-  const preview = $("card-preview");
-  if (s.newImage) {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.src = s.newImage.dataUrl;
-    preview.replaceChildren(img);
-  } else {
-    setVisual(preview, { emoji: s.emoji, imageRef: s.existingRef });
-  }
-  $("btn-card-photo-remove").hidden = !(s.newImage || s.existingRef);
-  for (const btn of $("emoji-grid").children) btn.classList.toggle("is-selected", btn.dataset.emoji === s.emoji);
 }
 
 // Shrink a photo to at most IMAGE_MAX_DIMENSION px and encode it as WebP.
@@ -1004,60 +975,81 @@ async function downscaleImage(file) {
   return { dataUrl, w, h, bytes: dataUrlBytes(dataUrl) };
 }
 
-async function onPhotoChosen(event) {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = "";                     // lets the same file be picked again later
-  if (!file) return;
+// ---- Card sheet: a name plus an image ----
+
+// card = an existing custom card to edit, or null for a new one.
+// onSaved(card) is called after a successful save (or null when nothing needs to happen afterwards).
+function openCardSheet(card, onSaved) {
+  state.sheet = {
+    card,
+    // What the card's picture is: { emoji, imageRef }. A new card has none until one is picked.
+    visual: card ? { emoji: card.emoji || "", imageRef: card.imageRef || null } : null,
+    keyword: "",                               // the keyword of a newly picked image (becomes the card's keyword)
+    onSaved: onSaved || null,
+  };
+  $("card-sheet-title").textContent = card ? t("cardSheet.titleEdit") : t("cardSheet.titleNew");
+  $("card-label").value = card ? card.label : "";
   $("card-sheet-error").hidden = true;
-  try {
-    const image = await downscaleImage(file);
-    if (image.bytes > IMAGE_MAX_BYTES) {
-      sheetError(t("cardSheet.errorImageTooBig", { kb: Math.round(image.bytes / 1024) }));
-      return;
-    }
-    state.sheet.newImage = image;
+  renderSheetPreview();
+  $("card-sheet").showModal();
+}
+
+function sheetError(message) {
+  $("card-sheet-error").textContent = message;
+  $("card-sheet-error").hidden = false;
+}
+
+function renderSheetPreview() {
+  const s = state.sheet;
+  const preview = $("card-preview");
+  if (!s.visual) { preview.replaceChildren(); return; }
+  setVisual(preview, s.visual);
+}
+
+// "Pick image" in the card sheet: the same picker as the compose screen.
+function pickImageForSheet() {
+  openPicker($("card-label").value.trim(), (image) => {
+    state.sheet.visual = image.kind === "emoji"
+      ? { emoji: image.emoji, imageRef: null }
+      : { emoji: "", imageRef: image.id };
+    state.sheet.keyword = image.keyword || "";
+    $("card-sheet-error").hidden = true;
     renderSheetPreview();
-  } catch (err) {
-    console.warn("Image read failed:", err);
-    sheetError(t("cardSheet.errorImageRead"));
-  }
+  });
 }
 
 async function saveCardFromSheet() {
   const s = state.sheet;
   const label = $("card-label").value.trim();
   if (!label) { sheetError(t("cardSheet.errorLabel")); return; }
+  if (!s.visual) { sheetError(t("compose.needImage")); return; }
 
   const button = $("btn-card-save");
   button.disabled = true;
   $("card-sheet-error").hidden = true;
   try {
-    let imageRef = s.existingRef;
-    if (s.newImage) imageRef = await fb.saveImage(state.familyId, s.newImage);
-
-    const data = {
-      label,
-      emoji: s.emoji,
-      imageRef: imageRef || null,
-      keywords: $("card-keywords").value.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean),
-      category: $("card-category").value || "custom",
-    };
-    let id;
-    if (s.card) { await fb.updateCard(state.familyId, s.card.id, data); id = s.card.id; }
-    else id = await fb.createCard(state.familyId, data);
-
+    const picture = { emoji: s.visual.emoji || "", imageRef: s.visual.imageRef || null };
+    let saved;
+    if (s.card) {
+      // Editing changes only the name and the picture; the card keeps its keywords and category.
+      await fb.updateCard(state.familyId, s.card.id, { label, ...picture });
+      saved = { ...s.card, label, ...picture };
+    } else {
+      const data = { label, ...picture, keywords: s.keyword ? [s.keyword] : [], category: "custom" };
+      const id = await fb.createCard(state.familyId, data);
+      saved = { id, builtIn: false, ...data };
+    }
     $("card-sheet").close();
     toast(t("cardSheet.saved"));
-    if (s.onSaved) s.onSaved({ id, builtIn: false, ...data });
+    if (s.onSaved) s.onSaved(saved);
   } catch (err) {
-    if (err.code === "image-too-big") sheetError(t("cardSheet.errorImageTooBig", { kb: Math.round(err.bytes / 1024) }));
-    else if (!err.reported) sheetError(t("error.generic"));      // write errors were already toasted
+    if (!err.reported) sheetError(t("error.generic"));      // write errors were already toasted
   } finally {
     button.disabled = false;
   }
 }
 
-// ---- Card Library ----
+// ---- Card Library (Cards tab and Images tab) ----
 
 function buildLibraryFilters() {
   const box = $("library-filters");
@@ -1081,10 +1073,28 @@ function buildLibraryFilters() {
 
 function openLibrary() {
   showScreen("library");
+  setLibraryTab(state.libTab);
+}
+
+// Switch between the Cards and Images tabs, and show only the controls that belong to each.
+function setLibraryTab(tab) {
+  state.libTab = tab;
+  const images = tab === "images";
+  $("tab-cards").setAttribute("aria-pressed", String(!images));
+  $("tab-images").setAttribute("aria-pressed", String(images));
+  $("library-filters").hidden = images;                      // categories only apply to cards
+  $("btn-library-create").hidden = images;
+  $("btn-library-add-image").hidden = !images;
+  $("library-search").setAttribute("placeholder", t(images ? "library.searchImagesPlaceholder" : "library.searchPlaceholder"));
   renderLibrary();
 }
 
 function renderLibrary() {
+  if (state.libTab === "images") renderLibraryImages();
+  else renderLibraryCards();
+}
+
+function renderLibraryCards() {
   const all = [...state.cards, ...BUILTIN_CARDS];
   const found = searchCards(all, $("library-search").value, state.libFilter);
   const fragment = document.createDocumentFragment();
@@ -1126,6 +1136,79 @@ function renderLibrary() {
   }
   $("library-grid").replaceChildren(fragment);
   $("library-empty").hidden = found.length > 0;
+  $("library-empty-images").hidden = true;
+}
+
+// The Images tab: your own images (editable) and the premade ones (read-only).
+function renderLibraryImages() {
+  const found = searchImages(allPickerImages(), $("library-search").value);
+  const shown = found.slice(0, 300);
+  const fragment = document.createDocumentFragment();
+
+  for (const image of shown) {
+    const tile = cloneTemplate("tpl-lib-card").firstElementChild;
+    paintImage(tile.querySelector(".tile__visual"), image);
+    tile.querySelector(".tile__label").textContent = image.keyword;
+    tile.querySelector(".tile__badge").textContent = image.builtIn ? t("library.builtIn") : t("library.myImage");
+    if (!image.builtIn) {
+      const edit = tile.querySelector(".js-edit");
+      edit.hidden = false;
+      edit.addEventListener("click", () => openImageEdit(image));
+    }
+    fragment.appendChild(tile);
+  }
+  $("library-grid").replaceChildren(fragment);
+  $("library-empty").hidden = true;
+  $("library-empty-images").hidden = shown.length > 0;
+}
+
+// Library "Add new image": opens the picker straight on the "add new image" form.
+function openAddImageFromLibrary() {
+  openPicker("", null);
+  state.picker.newOnly = true;                 // "Back" closes the dialog instead of showing the picture list
+  openNewImageView();
+}
+
+// ---- Editing one of your own images ----
+
+function openImageEdit(image) {
+  state.imageEdit = image;
+  paintImage($("image-edit-preview"), image);
+  $("image-edit-keyword").value = image.keyword || "";
+  $("image-edit").showModal();
+}
+
+async function saveImageEdit() {
+  const image = state.imageEdit;
+  if (!image) return;
+  const keyword = $("image-edit-keyword").value.trim().toLowerCase();
+  if (!keyword) { toast(t("picker.errorNoKeyword"), "error"); return; }
+
+  const button = $("btn-image-edit-save");
+  button.disabled = true;
+  try {
+    await fb.updateImageKeyword(state.familyId, image.id, keyword);
+    $("image-edit").close();
+    toast(t("imageEdit.saved"));
+  } catch (_) {
+    /* toast already shown by firebase.js */
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteImageFromEdit() {
+  const image = state.imageEdit;
+  if (!image) return;
+  // Tell the parent how many of their cards use this picture before they confirm.
+  const used = state.cards.filter((c) => c.imageRef === image.id).length;
+  const message = used > 0 ? t("imageEdit.deleteConfirmUsed", { count: used }) : t("imageEdit.deleteConfirm");
+  if (!confirm(message)) return;
+  try {
+    await fb.deleteImage(state.familyId, image.id);
+    $("image-edit").close();
+    toast(t("imageEdit.deleted"));
+  } catch (_) { /* toast already shown */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -1501,7 +1584,10 @@ function wireEvents() {
   $("picker-search").addEventListener("input", renderPicker);
   $("btn-picker-close").addEventListener("click", () => $("image-picker").close());
   $("btn-picker-new").addEventListener("click", openNewImageView);
-  $("btn-picker-new-back").addEventListener("click", () => showPickerView("list"));
+  $("btn-picker-new-back").addEventListener("click", () => {
+    if (state.picker.newOnly) $("image-picker").close();     // opened from the library: there is no list to go back to
+    else showPickerView("list");
+  });
   $("picker-svg-file").addEventListener("change", onSvgFileChosen);
   $("picker-svg-text").addEventListener("input", (e) => {
     if (e.target.value.trim()) applySvgText(e.target.value, false);   // an emptied box must not wipe a chosen file
@@ -1513,34 +1599,18 @@ function wireEvents() {
   buildLibraryFilters();
   $("btn-library-back").addEventListener("click", () => showScreen("parent"));
   $("btn-library-create").addEventListener("click", () => openCardSheet(null, null));
+  $("btn-library-add-image").addEventListener("click", openAddImageFromLibrary);
+  $("tab-cards").addEventListener("click", () => { $("library-search").value = ""; setLibraryTab("cards"); });
+  $("tab-images").addEventListener("click", () => { $("library-search").value = ""; setLibraryTab("images"); });
   $("library-search").addEventListener("input", renderLibrary);
 
-  // ---- Card sheet ----
-  const emojiGrid = $("emoji-grid");
-  for (const emoji of EMOJIS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "emoji-btn";
-    button.dataset.emoji = emoji;
-    button.textContent = emoji;
-    button.addEventListener("click", () => { state.sheet.emoji = emoji; renderSheetPreview(); });
-    emojiGrid.appendChild(button);
-  }
-  const categorySelect = $("card-category");
-  for (const category of [...BUILTIN_CATEGORIES, "custom"]) {
-    const option = document.createElement("option");
-    option.value = category;
-    option.textContent = t("category." + category);
-    categorySelect.appendChild(option);
-  }
-  $("card-photo").addEventListener("change", onPhotoChosen);
-  $("btn-card-photo-remove").addEventListener("click", () => {
-    state.sheet.newImage = null;
-    state.sheet.existingRef = null;
-    renderSheetPreview();
-  });
+  // ---- Card sheet and image editing ----
+  $("btn-card-pick-image").addEventListener("click", pickImageForSheet);
   $("btn-card-cancel").addEventListener("click", () => $("card-sheet").close());
   $("btn-card-save").addEventListener("click", saveCardFromSheet);
+  $("btn-image-edit-cancel").addEventListener("click", () => $("image-edit").close());
+  $("btn-image-edit-save").addEventListener("click", saveImageEdit);
+  $("btn-image-delete").addEventListener("click", deleteImageFromEdit);
 
   // ---- Settings (parents go back to their home, kids back to their screen) ----
   $("btn-settings-back").addEventListener("click", () => showScreen(state.role === "child" ? "child" : "parent"));
