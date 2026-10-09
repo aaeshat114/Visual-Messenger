@@ -114,6 +114,7 @@
         <button type="button" id="btn-new-question" class="btn btn--primary" data-i18n="parent.newQuestion"></button>
         <button type="button" id="btn-open-library" class="btn btn--soft" data-i18n="parent.cardLibrary"></button>
         <button type="button" id="btn-open-settings" class="btn btn--soft" data-i18n="parent.settings"></button>
+        <button type="button" id="btn-whats-wrong" class="btn btn--primary" data-i18n="parent.whatsWrong"></button>
       </div>
     </header>
 
@@ -275,6 +276,8 @@
 
     <!-- State A: a pending question is waiting -->
     <div id="child-question-view" hidden>
+      <!-- "What's wrong?" check-in only: ← and the doorway's name; tapping it goes back to the doorways -->
+      <button type="button" id="child-breadcrumb" class="kid-breadcrumb" hidden></button>
       <h1 id="child-question" class="kid-question"></h1>
       <p id="child-hint" class="kid-hint"></p>
       <div id="child-grid" class="kid-grid"></div>
