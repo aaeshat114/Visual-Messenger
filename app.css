@@ -616,3 +616,28 @@ button.tile:active { transform: scale(0.96); }
    photos to a square, which would cut the edges off a tall or wide icon.
    (The attribute selector matches only images whose source is an SVG data URL.) */
 img[src^="data:image/svg"] { object-fit: contain !important; }
+
+
+/* ========== 10. "What's wrong?" check-in ========== */
+
+/* The breadcrumb at the top of a doorway's leaves: "← Someone was mean". It is a big, soft button
+   (88px tall, like the other child buttons), and tapping it goes back to the doorways. */
+.kid-breadcrumb {
+  display: flex; align-items: center;
+  width: 100%; max-width: 1000px;
+  min-height: var(--tap-child);
+  margin: 0 auto 12px;
+  padding: 12px 72px 12px 24px;      /* extra room on the right keeps the text clear of the settings gear */
+  border: 0;
+  border-radius: var(--radius);
+  background: rgba(255, 253, 249, 0.85);
+  box-shadow: var(--shadow);
+  font-family: var(--font-child);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--c-ink);
+  text-align: left;
+  overflow-wrap: anywhere;           /* long doorway names wrap instead of running off the screen */
+  transition: transform var(--t-fast) ease;
+}
+.kid-breadcrumb:active { transform: scale(0.98); }
