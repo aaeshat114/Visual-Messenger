@@ -560,12 +560,19 @@ export async function nudgeQuestion(familyId, questionId) {
 
 // Child -> submit an answer. selectedKeys = option keys; text = the typed
 // "Something else" text, or null/"" if none.
-export async function answerQuestion(familyId, questionId, { selectedKeys, text }) {
+export async function answerQuestion(familyId, questionId, { selectedKeys, text, path }) {
+  const answer = { selectedKeys, text: text ? text : null };
+  // The "What's wrong?" check-in also saves the path the child followed, one step per level:
+  //   [{ key, label }, ...]   e.g. Someone was mean -> Someone scared me
+  // The label is copied, so the history stays readable if a card is later renamed or deleted.
+  if (path && path.length) {
+    answer.path = path.map((step) => ({ key: String(step.key), label: String(step.label) }));
+  }
   await write(() => updateDoc(questionRef(familyId, questionId), {
     status: "answered",
     answeredAt: serverTimestamp(),
     answeredBy: getUid(),
-    answer: { selectedKeys, text: text ? text : null },
+    answer,
   }));
 }
 
