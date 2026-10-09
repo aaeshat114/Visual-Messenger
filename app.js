@@ -45,6 +45,8 @@ import {
   getBuiltinCard,
   getBuiltinImageData,
   getCheckinTree,
+  categoriesOf,
+  CHECKIN_CATEGORY,
 } from "./cards-builtin.js";
 
 // ---------------------------------------------------------------------------
@@ -1155,13 +1157,45 @@ function openCardSheet(card, onSaved) {
     // What the card's picture is: { emoji, imageRef }. A new card has none until one is picked.
     visual: card ? { emoji: card.emoji || "", imageRef: card.imageRef || null } : null,
     keyword: "",                               // the keyword of a newly picked image (becomes the card's keyword)
+    // The extra categories switched on for this card. "Custom" is always on and is not kept in this set.
+    categories: new Set(card ? categoriesOf(card).filter((c) => c !== "custom") : []),
     onSaved: onSaved || null,
   };
   $("card-sheet-title").textContent = card ? t("cardSheet.titleEdit") : t("cardSheet.titleNew");
   $("card-label").value = card ? card.label : "";
   $("card-sheet-error").hidden = true;
   renderSheetPreview();
+  renderSheetCategories();
   $("card-sheet").showModal();
+}
+
+// The category buttons in the card sheet. "Custom" is always on (every card of yours is in it) and
+// cannot be switched off. The Problems category is left out: only premade cards can be part of the
+// "What's wrong?" check-in, so a card of yours in Problems would do nothing there.
+function renderSheetCategories() {
+  const s = state.sheet;
+  const makeButton = (label, pressed, disabled, onClick) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-btn";           // same look as the library's filter buttons
+    button.textContent = label;
+    button.setAttribute("aria-pressed", String(pressed));
+    button.disabled = disabled;
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  };
+
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(makeButton(categoryName("custom"), true, true, null));
+  for (const category of BUILTIN_CATEGORIES) {
+    if (category === CHECKIN_CATEGORY || category === "custom") continue;
+    fragment.appendChild(makeButton(categoryName(category), s.categories.has(category), false, () => {
+      if (s.categories.has(category)) s.categories.delete(category);
+      else s.categories.add(category);
+      renderSheetCategories();
+    }));
+  }
+  $("card-categories").replaceChildren(fragment);
 }
 
 function sheetError(message) {
@@ -1200,13 +1234,15 @@ async function saveCardFromSheet() {
   try {
     // A premade picture is copied into your own images first, so the card never depends on cards-data.js.
     const picture = { emoji: s.visual.emoji || "", imageRef: await ownImageRef(s.visual.imageRef || null) };
+    // "Custom" first (every card of yours is in it), then any extra categories that were switched on.
+    const category = ["custom", ...s.categories];
     let saved;
     if (s.card) {
-      // Editing changes only the name and the picture; the card keeps its keywords and category.
-      await fb.updateCard(state.familyId, s.card.id, { label, ...picture });
-      saved = { ...s.card, label, ...picture };
+      // Editing changes the name, the picture and the categories; the card keeps its keywords.
+      await fb.updateCard(state.familyId, s.card.id, { label, ...picture, category });
+      saved = { ...s.card, label, ...picture, category };
     } else {
-      const data = { label, ...picture, keywords: s.keyword ? [s.keyword] : [], category: "custom" };
+      const data = { label, ...picture, keywords: s.keyword ? [s.keyword] : [], category };
       const id = await fb.createCard(state.familyId, data);
       saved = { id, builtIn: false, ...data };
     }
@@ -1286,7 +1322,7 @@ function renderLibraryCards() {
           const imageRef = await ownImageRef("builtin:" + card.id);   // copies the picture into your own images
           await fb.createCard(state.familyId, {
             label: cardLabel(card), emoji: "", imageRef,
-            keywords: [...card.keywords], category: card.category || "custom",
+            keywords: [...card.keywords], category: categoriesOf(card),
           });
           toast(t("library.duplicated"));
         } catch (_) { /* toast already shown */ }
