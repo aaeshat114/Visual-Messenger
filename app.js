@@ -5,12 +5,12 @@
 // Layout of this file:
 //   1. Imports, state, small helpers
 //   2. Boot, role select, pairing
-//   3. Parent: home list, nudging, install banner
+//   3. Parent: home list, "What's wrong?" button, nudging, install banner
 //   4. Parent: compose (who gets it, options, sending)
 //   4b. Card maker (label + image) and the image picker
 //   5. Card sheet (create/edit card), Card Library (Cards and Images tabs), image editing
 //   6. Settings (parents and kids)
-//   7. Child: question, answers, confetti
+//   7. Child: questions, the "What's wrong?" check-in, answers, confetti
 //   8. Event wiring and start-up
 //
 // Rules this file follows:
@@ -44,6 +44,7 @@ import {
   categoryName,
   getBuiltinCard,
   getBuiltinImageData,
+  getCheckinTree,
 } from "./cards-builtin.js";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,8 @@ let fb = null;     // firebase.js
 let push = null;   // push.js
 
 const ELSE_KEY = "__else";   // the option key used for the "Something else" card
+const CHECKIN_KIND = "whatsWrong";   // the marker on a "What's wrong?" question
+const PATH_ARROW = " → ";    // between the steps of a check-in answer
 const SCREEN_IDS = [
   "setup", "loading", "role", "pair-parent", "pair-kid",
   "parent", "compose", "library", "settings", "child", "child-text",
@@ -98,6 +101,12 @@ const state = {
     showThanks: false,
     answeringQid: null,
     submitting: false,
+    checkin: {                  // the "What's wrong?" check-in: where the child is
+      qid: null,                //   which question this belongs to
+      doorwayKey: null,         //   the doorway opened (null = the doorway list is showing)
+      leafKey: null,            //   the leaf selected inside that doorway (null = none yet)
+      pushed: false,            //   true while one extra browser-history step is pushed for Android's back button
+    },
   },
 };
 
@@ -105,6 +114,7 @@ const stops = [];               // unsubscribe functions for every live listener
 let nudgeTimer = null;
 let cleanupTimer = null;
 let confettiRun = 0;
+let checkinSending = false;     // true while the "What's wrong?" button is sending
 
 const $ = (id) => document.getElementById(id);
 
@@ -185,8 +195,16 @@ function memberName(uid) {
   return same.length > 1 ? `${base} ${same.indexOf(uid) + 1}` : base;
 }
 
+// A check-in answer as readable text: "Someone was mean → Someone scared me".
+// Each step is { key, label }; the label was copied when the answer was given.
+function pathText(path) {
+  return (path || []).map((step) => step.label).join(PATH_ARROW);
+}
+
 // "🍕 Pizza, 🎬 Movie, typed text". Used in push bodies and the child's history.
-function summarize(options, selectedKeys, text) {
+// A check-in answer carries a path, which is shown as "A → B" instead.
+function summarize(options, selectedKeys, text, path) {
+  if (path && path.length) return pathText(path);
   const parts = (options || [])
     .filter((o) => (selectedKeys || []).includes(o.key))
     .map((o) => (o.emoji ? o.emoji + " " : "") + optionLabel(o));
@@ -368,6 +386,7 @@ function renderParentHome() {
   fillQuestionList($("answered-list"), rest);
   $("pending-empty").hidden = pending.length > 0;
   $("answered-empty").hidden = rest.length > 0;
+  updateWhatsWrongButton();
 }
 
 function fillQuestionList(container, list) {
@@ -377,6 +396,7 @@ function fillQuestionList(container, list) {
 }
 
 function buildQuestionCard(q) {
+  const isCheckin = q.kind === CHECKIN_KIND;
   const card = cloneTemplate("tpl-question").firstElementChild;
   card.classList.toggle("is-answered", q.status === "answered");
   card.classList.toggle("is-cancelled", q.status === "cancelled");
@@ -388,14 +408,15 @@ function buildQuestionCard(q) {
   badge.classList.toggle("is-cancelled", q.status === "cancelled");
 
   // "Pick one · For Mia" while waiting, "Pick one · Answered by Mia" once answered.
+  // A check-in says "Check-in" instead of "Pick one".
   // Every question is sent to exactly one kid, so the name is unambiguous.
   const kidUid = (q.status === "answered" && q.answeredBy) || (q.targetUids || [])[0];
-  const modeText = q.allowMultiple ? t("parent.multiple") : t("parent.single");
+  const modeText = isCheckin ? t("parent.checkin") : (q.allowMultiple ? t("parent.multiple") : t("parent.single"));
   card.querySelector(".q-card__mode").textContent = kidUid
     ? `${modeText} · ${t(q.status === "answered" ? "parent.answeredBy" : "parent.for", { name: memberName(kidUid) })}`
     : modeText;
 
-  // Option thumbnails; chosen ones are highlighted on answered questions.
+  // Option thumbnails; chosen ones are highlighted on answered questions. (A check-in has none.)
   const answer = q.answer || { selectedKeys: [], text: null };
   const optionsList = card.querySelector(".q-card__options");
   for (const option of q.options || []) {
@@ -409,12 +430,17 @@ function buildQuestionCard(q) {
 
   // What the child answered.
   if (q.status === "answered") {
-    const labels = (q.options || [])
-      .filter((o) => (answer.selectedKeys || []).includes(o.key))
-      .map(optionLabel);
     const lines = [];
-    if (labels.length) lines.push(`${t("parent.chose")} ${labels.join(", ")}`);
-    if (answer.text) lines.push(`${t("parent.typed")} ${answer.text}`);
+    if (answer.path && answer.path.length) {
+      // A check-in answer: the full path, e.g. "Someone was mean → Someone scared me".
+      lines.push(`${t("parent.chose")} ${pathText(answer.path)}`);
+    } else {
+      const labels = (q.options || [])
+        .filter((o) => (answer.selectedKeys || []).includes(o.key))
+        .map(optionLabel);
+      if (labels.length) lines.push(`${t("parent.chose")} ${labels.join(", ")}`);
+      if (answer.text) lines.push(`${t("parent.typed")} ${answer.text}`);
+    }
     const answerEl = card.querySelector(".q-card__answer");
     answerEl.textContent = lines.join(" · ");
     answerEl.hidden = lines.length === 0;
@@ -439,9 +465,12 @@ function buildQuestionCard(q) {
       try { await fb.cancelQuestion(state.familyId, q.id); } catch (_) { /* toast already shown */ }
     });
   } else {
-    duplicateBtn.hidden = false;
-    duplicateBtn.addEventListener("click", () => openCompose(q));
-        // Delete removes the question from the history (and from the kid's "Your answers" list).
+    // Duplicate does not apply to a check-in: the "What's wrong?" button sends a fresh one.
+    if (!isCheckin) {
+      duplicateBtn.hidden = false;
+      duplicateBtn.addEventListener("click", () => openCompose(q));
+    }
+    // Delete removes the question from the history (and from the kid's "Your answers" list).
     const deleteBtn = card.querySelector(".js-delete");
     deleteBtn.hidden = false;
     deleteBtn.addEventListener("click", async () => {
@@ -453,6 +482,69 @@ function buildQuestionCard(q) {
     });
   }
   return card;
+}
+
+// ---- The "What's wrong?" button ----
+// One tap sends the check-in to every kid who does not already have one waiting.
+// The button is disabled (with the reason in its text) when no kid is paired yet,
+// or when every kid already has a check-in waiting for an answer.
+
+function checkinWaitingKids() {
+  return new Set(
+    state.questions
+      .filter((q) => q.status === "pending" && q.kind === CHECKIN_KIND)
+      .map((q) => (q.targetUids || [])[0])
+  );
+}
+
+function updateWhatsWrongButton() {
+  const button = $("btn-whats-wrong");
+  if (!button || !fb) return;
+  const kids = childUids();
+  const waiting = checkinWaitingKids();
+  let key = "parent.whatsWrong";
+  let disabled = false;
+  if (kids.length === 0) { key = "parent.whatsWrongNoKid"; disabled = true; }
+  else if (kids.every((uid) => waiting.has(uid))) { key = "parent.whatsWrongWaiting"; disabled = true; }
+  button.textContent = t(key);
+  button.title = disabled ? t(key) : "";
+  button.disabled = disabled || checkinSending;
+}
+
+async function sendCheckin() {
+  if (checkinSending) return;
+  const waiting = checkinWaitingKids();
+  const targets = childUids().filter((uid) => !waiting.has(uid));
+  if (targets.length === 0) return;
+
+  // The doorways and their leaves, from the Problems cards in cards-data.js.
+  // Only ids and labels travel inside the question; each phone draws the pictures from its own copy.
+  const tree = getCheckinTree().map((d) => ({
+    key: d.card.id,
+    label: cardLabel(d.card),
+    children: d.children.map((leaf) => ({ key: leaf.id, label: cardLabel(leaf) })),
+  }));
+  if (tree.length === 0) { toast(t("error.generic"), "error"); return; }   // no Problems cards are set up
+
+  const text = t("checkin.question");
+  checkinSending = true;
+  updateWhatsWrongButton();
+  try {
+    for (const uid of targets) {
+      const questionId = await fb.createQuestion(state.familyId, {
+        text, allowMultiple: false, options: [], targetUids: [uid], kind: CHECKIN_KIND, tree,
+      });
+      // Same notification as any new question.
+      push.sendPush([uid], t("push.newQuestion.title"), t("push.newQuestion.body", { text }), { questionId, type: "question" })
+        .then((result) => { if (!result.ok) toast(t("error.pushFailed"), "error"); });
+    }
+    toast(t("compose.sent"));
+  } catch (_) {
+    /* toast already shown by firebase.js */
+  } finally {
+    checkinSending = false;
+    updateWhatsWrongButton();
+  }
 }
 
 // Bump the counter in Firestore, then push the child. `auto` = true for the timer.
@@ -628,6 +720,7 @@ function renderChips() {
 }
 
 // Cards matching what was typed in the card-name box: the family's own cards first, then the premade set.
+// Every premade card shows up here, Problems cards included, and behaves like any other card.
 function renderResults() {
   const all = [...state.cards, ...BUILTIN_CARDS];
   const found = searchCards(all, $("compose-search").value, "all");
@@ -1431,6 +1524,9 @@ function renderChild(force) {
   // The newest pending question, ignoring one we have just answered (the server may not have caught up yet).
   const active = state.childPending.find((q) => !(c.showThanks && q.id === c.answeringQid)) || null;
 
+  // Leaving the check-in (answered, cancelled, or a normal question took over): drop its back-button step.
+  if (!active || active.kind !== CHECKIN_KIND) leaveCheckinHistory();
+
   const show = (view) => {
     $("child-question-view").hidden = view !== "question";
     $("child-waiting").hidden = view !== "waiting";
@@ -1440,12 +1536,13 @@ function renderChild(force) {
   if (active) {
     c.showThanks = false;
     show("question");
-    const sig = JSON.stringify([active.text, active.allowMultiple, active.options]);
+    const sig = JSON.stringify([active.text, active.allowMultiple, active.options, active.kind || null, active.tree || null]);
     if (force || c.qid !== active.id || c.sig !== sig) {
       c.qid = active.id;
       c.sig = sig;
       c.current = active;
-      renderQuestion(active);
+      if (active.kind === CHECKIN_KIND) renderCheckin(active);
+      else renderQuestion(active);
     }
   } else {
     c.qid = null;
@@ -1459,6 +1556,7 @@ function renderChild(force) {
 function renderQuestion(q) {
   const c = state.child;
   c.selected = new Set();
+  $("child-breadcrumb").hidden = true;                      // only the check-in uses the breadcrumb
   $("child-question").textContent = q.text || t("child.defaultQuestion");
   $("child-hint").textContent = q.allowMultiple ? t("child.pickMany") : t("child.pickOne");
   $("btn-child-done").hidden = true;
@@ -1490,6 +1588,132 @@ function renderQuestion(q) {
   $("child-grid").replaceChildren(fragment);
 }
 
+// ---- The "What's wrong?" check-in, on the child's screen ----
+// Two levels. The doorway list comes first (plus "Something else"). Tapping a doorway shows its leaves,
+// with a breadcrumb "← doorway" on top. Tapping a leaf selects it (thick border) and shows the Done
+// button; Done sends the answer. "Something else" opens the usual free-text screen.
+// The question carries the doorways and leaves as ids and labels (q.tree); the pictures come from
+// this phone's own copy of cards-data.js, looked up by id.
+
+function renderCheckin(q) {
+  const c = state.child;
+  const ck = c.checkin;
+  if (ck.qid !== q.id) {                                    // a new check-in always starts at the doorway list
+    ck.qid = q.id;
+    ck.doorwayKey = null;
+    ck.leafKey = null;
+  }
+  c.selected = new Set();
+  drawCheckin(q);
+}
+
+// Draw whichever level the child is on: the doorway list, or one doorway's leaves.
+function drawCheckin(q) {
+  const c = state.child;
+  const ck = c.checkin;
+  const tree = q.tree || [];
+  const doorway = tree.find((d) => d.key === ck.doorwayKey) || null;
+  if (!doorway) { ck.doorwayKey = null; ck.leafKey = null; }
+
+  $("child-question").textContent = q.text || t("checkin.question");
+  const breadcrumb = $("child-breadcrumb");
+  breadcrumb.hidden = !doorway;
+  if (doorway) breadcrumb.textContent = t("checkin.breadcrumb", { label: doorway.label });
+  $("child-hint").textContent = t(doorway ? "checkin.hintLeaf" : "checkin.hintDoorway");
+  $("btn-child-done").hidden = !(doorway && ck.leafKey);
+
+  // One big card. `key` lets the leaf cards be found again when the selection changes.
+  const makeCard = (label, fill, onTap, key) => {
+    const card = cloneTemplate("tpl-kid-card").firstElementChild;
+    fill(card.querySelector(".kid-card__visual"));
+    card.querySelector(".kid-card__label").textContent = label;
+    if (key) card.dataset.key = key;
+    card.addEventListener("click", () => { if (!c.submitting) onTap(); });
+    return card;
+  };
+  // A card's picture, from this phone's cards-data.js. Unknown ids show the star placeholder.
+  const pictureOf = (key) => (el) => {
+    const card = getBuiltinCard(key);
+    setVisual(el, { imageData: card ? card.imageData : null });
+  };
+  const elseCard = (onTap) => makeCard(t("child.somethingElse"), (el) => setVisual(el, { emoji: "💬" }), onTap, null);
+
+  const fragment = document.createDocumentFragment();
+  if (!doorway) {
+    for (const d of tree) {
+      fragment.appendChild(makeCard(d.label, pictureOf(d.key), () => openCheckinDoorway(q, d.key), d.key));
+    }
+    if (q.elseDoorway !== false) fragment.appendChild(elseCard(openChildText));      // no doorway: just the typed text
+  } else {
+    for (const leaf of doorway.children) {
+      fragment.appendChild(makeCard(leaf.label, pictureOf(leaf.key), () => {
+        ck.leafKey = ck.leafKey === leaf.key ? null : leaf.key;                      // tap again to un-select
+        refreshLeafSelection();
+      }, leaf.key));
+    }
+    if (q.elseLeaf !== false) fragment.appendChild(elseCard(openChildText));          // keeps the doorway: path = doorway -> text
+  }
+  $("child-grid").replaceChildren(fragment);
+  if (doorway) refreshLeafSelection();
+}
+
+// Show which leaf is selected (without redrawing the cards) and show or hide the Done button.
+function refreshLeafSelection() {
+  const ck = state.child.checkin;
+  for (const card of $("child-grid").children) {
+    if (!card.dataset.key) continue;                                   // the "Something else" card
+    const selected = card.dataset.key === ck.leafKey;
+    card.classList.toggle("is-selected", selected);
+    card.setAttribute("aria-pressed", String(selected));
+  }
+  $("btn-child-done").hidden = !ck.leafKey;
+}
+
+// A doorway was tapped: show its leaves. One browser-history step is pushed so that Android's back
+// button returns to the doorway list instead of leaving the app.
+function openCheckinDoorway(q, key) {
+  const ck = state.child.checkin;
+  ck.doorwayKey = key;
+  ck.leafKey = null;
+  if (!ck.pushed) {
+    history.pushState({ vmLeaf: true }, "");
+    ck.pushed = true;
+  }
+  drawCheckin(q);
+  window.scrollTo(0, 0);
+}
+
+// The breadcrumb was tapped: back to the doorway list.
+function backToCheckinDoorways() {
+  const ck = state.child.checkin;
+  if (ck.pushed) { history.back(); return; }                 // the popstate handler (see wireEvents) draws the list
+  ck.doorwayKey = null;
+  ck.leafKey = null;
+  if (state.child.current && state.child.current.kind === CHECKIN_KIND) drawCheckin(state.child.current);
+}
+
+// Remove the extra history step (when the check-in ends some other way than the back button).
+function leaveCheckinHistory() {
+  const ck = state.child.checkin;
+  if (!ck.pushed) return;
+  ck.pushed = false;                                         // so the popstate handler ignores the step we remove
+  history.back();
+}
+
+// Done: send the doorway and the selected leaf as the answer.
+function submitCheckinLeaf() {
+  const c = state.child;
+  const ck = c.checkin;
+  const q = c.current;
+  if (!q || q.kind !== CHECKIN_KIND || c.submitting) return;
+  const doorway = (q.tree || []).find((d) => d.key === ck.doorwayKey);
+  const leaf = doorway && doorway.children.find((l) => l.key === ck.leafKey);
+  if (!doorway || !leaf) return;
+  // The path keeps each step's id and a copy of its label, so history stays readable if a card changes.
+  const path = [{ key: doorway.key, label: doorway.label }, { key: leaf.key, label: leaf.label }];
+  submitAnswer(q, path.map((step) => step.key), null, path);
+}
+
 function openChildText() {
   $("child-textarea").value = "";
   $("child-text-error").hidden = true;
@@ -1507,11 +1731,21 @@ function sendChildText() {
     renderChild(true);
     return;
   }
+  if (c.current.kind === CHECKIN_KIND) {
+    // Typed text in the check-in: with a doorway open the path is doorway -> text, otherwise just the text.
+    const doorway = (c.current.tree || []).find((d) => d.key === c.checkin.doorwayKey);
+    const path = [];
+    if (doorway) path.push({ key: doorway.key, label: doorway.label });
+    path.push({ key: ELSE_KEY, label: text });
+    submitAnswer(c.current, path.map((step) => step.key), text, path);
+    return;
+  }
   submitAnswer(c.current, [...c.selected], text);
 }
 
 // Shows "Thank you!" straight away (optimistic) and rolls back if the write fails.
-async function submitAnswer(q, selectedKeys, text) {
+// `path` is only given by the check-in.
+async function submitAnswer(q, selectedKeys, text, path) {
   const c = state.child;
   if (c.submitting) return;
   c.submitting = true;
@@ -1522,16 +1756,20 @@ async function submitAnswer(q, selectedKeys, text) {
   launchConfetti();
 
   try {
-    await fb.answerQuestion(state.familyId, q.id, { selectedKeys, text });
+    await fb.answerQuestion(state.familyId, q.id, { selectedKeys, text, path });
     push.sendPush(
       parentUids(),
       t("push.answer.title"),
-      t("push.answer.body", { text: summarize(q.options, selectedKeys, text) }),
+      t("push.answer.body", { text: summarize(q.options, selectedKeys, text, path) }),
       { questionId: q.id, type: "answer" }
     );
   } catch (err) {
     c.showThanks = false;
     c.answeringQid = null;
+    if (q.kind === CHECKIN_KIND) {                             // the check-in comes back at the doorway list
+      c.checkin.doorwayKey = null;
+      c.checkin.leafKey = null;
+    }
     if (!err.reported) toast(t("child.submitFailed"), "error");
     renderChild(true);                         // the question comes back on screen
   } finally {
@@ -1546,7 +1784,7 @@ function renderHistory() {
       const item = cloneTemplate("tpl-history-item").firstElementChild;
       item.querySelector(".history-item__q").textContent = q.text;
       const answer = q.answer || {};
-      item.querySelector(".history-item__a").textContent = summarize(q.options, answer.selectedKeys, answer.text);
+      item.querySelector(".history-item__a").textContent = summarize(q.options, answer.selectedKeys, answer.text, answer.path);
       fragment.appendChild(item);
     }
     if (state.childAnswered.length === 0) {
@@ -1634,6 +1872,7 @@ function wireEvents() {
 
   // ---- Parent home ----
   $("btn-new-question").addEventListener("click", () => openCompose());
+  $("btn-whats-wrong").addEventListener("click", sendCheckin);
   $("btn-open-library").addEventListener("click", openLibrary);
   $("btn-open-settings").addEventListener("click", openSettings);
   $("btn-install").addEventListener("click", async () => {
@@ -1720,10 +1959,38 @@ function wireEvents() {
   // ---- Child ----
   $("btn-child-done").addEventListener("click", () => {
     const c = state.child;
+    if (c.current && c.current.kind === CHECKIN_KIND) { submitCheckinLeaf(); return; }   // the check-in's own Done
     if (c.current && c.selected.size > 0) submitAnswer(c.current, [...c.selected], null);
   });
+  $("child-breadcrumb").addEventListener("click", backToCheckinDoorways);
   $("btn-child-text-back").addEventListener("click", () => showScreen("child"));
   $("btn-child-text-send").addEventListener("click", sendChildText);
+
+  // ---- Android's back button in the check-in ----
+  // Opening a doorway pushes one history step (see openCheckinDoorway). Pressing back removes it
+  // and lands here. We only act when that step is ours (ck.pushed); otherwise Android does its usual thing.
+  window.addEventListener("popstate", () => {
+    const ck = state.child.checkin;
+    if (!ck.pushed) return;
+    ck.pushed = false;
+    // Back pressed on the free-text or settings screen: return to the check-in screen underneath it,
+    // and push a fresh step so that back still works from the leaf list.
+    if (!$("screen-child-text").hidden || !$("screen-settings").hidden) {
+      showScreen("child");
+      if (ck.doorwayKey) {
+        history.pushState({ vmLeaf: true }, "");
+        ck.pushed = true;
+      }
+      return;
+    }
+    // Back pressed on the leaf list: show the doorway list.
+    const q = state.child.current;
+    if (q && q.kind === CHECKIN_KIND) {
+      ck.doorwayKey = null;
+      ck.leafKey = null;
+      drawCheckin(q);
+    }
+  });
 
   // ---- Browser events ----
   // Chrome fires this when the app is installable. We keep it for the parent's banner.
