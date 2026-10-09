@@ -497,17 +497,26 @@ const HISTORY_LIMIT = 20;       // newest N answered questions in the child's "Y
 
 // Parent -> create a question. Returns the new question id.
 // Option display data is COPIED into the question (denormalised), so the child
-// never needs to look up the card. The one exception is the picture itself:
+// never needs to look up the card. The one exception is a picture stored in Firestore:
 // imageRef is an id, and the image is fetched with getImage() (and cached).
-export async function createQuestion(familyId, { text, allowMultiple, options, targetUids }) {
-  const cleanOptions = options.map((o) => ({
+// A premade card's picture travels inside the question as imageData.
+//
+// Optional extras, used only by the "What's wrong?" check-in (normal questions leave them out,
+// and then none of these fields is saved):
+//   kind          "whatsWrong"
+//   tree          [{ key, label, children: [{ key, label }] }]  the doorways and their leaves
+//   elseDoorway   show "Something else" next to the doorways (default true)
+//   elseLeaf      show "Something else" at the end of every doorway's leaves (default true)
+// The check-in carries labels and ids only, no pictures: each phone draws those from its own cards-data.js.
+export async function createQuestion(familyId, { text, allowMultiple, options, targetUids, kind, tree, elseDoorway, elseLeaf }) {
+  const cleanOptions = (options || []).map((o) => ({
     key: String(o.key),
     label: String(o.label),
     emoji: o.emoji || "",
     imageRef: o.imageRef || null,
     imageData: o.imageData || null,       // a premade card's picture (SVG data URL), copied into the question
   }));
-  const ref = await write(() => addDoc(questionsCol(familyId), {
+  const data = {
     text,
     allowMultiple: !!allowMultiple,
     options: cleanOptions,
@@ -520,7 +529,18 @@ export async function createQuestion(familyId, { text, allowMultiple, options, t
     answer: null,
     nudgeCount: 0,
     lastNudgeAt: null,
-  }));
+  };
+  if (kind) {
+    data.kind = String(kind);
+    data.tree = (tree || []).map((doorway) => ({
+      key: String(doorway.key),
+      label: String(doorway.label),
+      children: (doorway.children || []).map((leaf) => ({ key: String(leaf.key), label: String(leaf.label) })),
+    }));
+    data.elseDoorway = elseDoorway !== false;
+    data.elseLeaf = elseLeaf !== false;
+  }
+  const ref = await write(() => addDoc(questionsCol(familyId), data));
   return ref.id;
 }
 
