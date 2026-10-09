@@ -5,7 +5,7 @@
 //   {
 //     id: "pizza",                  unique, lower case, letters/numbers/hyphens only, no spaces
 //     label: "Pizza",               the name shown under the picture, also searched
-//     category: "food",             one of the ids in PREMADE_CATEGORIES below
+//     category: "food",             one of the ids in PREMADE_CATEGORIES below or a list to put the card in several: category: ["food", "snack"],
 //     keywords: ["dinner", "slice"],  extra words that find this card in the search (can be [])
 //     svg: `<svg ...>...</svg>`,    the SVG code, pasted between the two backtick characters
 //   },
