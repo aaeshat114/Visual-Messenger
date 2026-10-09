@@ -173,6 +173,8 @@ export const STRINGS = {
     "imageEdit.deleteConfirm": "Delete this image? Pictures in questions you already sent will disappear too.",
     "imageEdit.deleteConfirmUsed": "Delete this image? {count} of your cards use it and will show a plain placeholder. Pictures in questions you already sent will disappear too.",
     "cardSheet.image": "Image",
+    "cardSheet.categories": "Categories",
+    "cardSheet.categoriesHelp": "Every card of yours is in Custom. Tap other categories to put it there too.",
     
     // ---- Card Library ----
     "library.title": "Card Library",
