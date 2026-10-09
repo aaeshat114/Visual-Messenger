@@ -25,6 +25,7 @@
 // The button text comes from i18n.js ("category.<id>"); if there is no entry there,
 // the id is shown with a capital letter.
 export const PREMADE_CATEGORIES = [
+   "problems",
    "food",
    "activity",
    "place",
@@ -32,6 +33,94 @@ export const PREMADE_CATEGORIES = [
 ];
 
 export const PREMADE_CARDS = [
+  // ===========================================================================
+  // PROBLEMS CATEGORY: used by the "What's wrong?" check-in
+  // ---------------------------------------------------------------------------
+  // Two levels. A "doorway" is a card that has leaves. A "leaf" has  parent: "<doorway id>".
+  // In the normal composer all of these behave like any other card; only the check-in reads parent.
+  // None of these has a picture yet, so they show a grey question mark. To add one, put a line like
+  //     svg: `<svg ...>...</svg>`,
+  // inside the card's braces (keep the comma after it). Add keywords the same way.
+  // ===========================================================================
+
+  // ---- Doorways ----
+  { id: "problem-stuff", label: "Something happened to my stuff", category: "problems", keywords: [] },
+  { id: "problem-mean", label: "Someone was mean", category: "problems", keywords: [] },
+  { id: "problem-got-hurt", label: "I got hurt", category: "problems", keywords: [] },
+  { id: "problem-hurts", label: "Something hurts", category: "problems", keywords: [] },
+  { id: "problem-dont-want", label: "Don't want to...", category: "problems", keywords: [] },
+  { id: "problem-want", label: "Want to...", category: "problems", keywords: [] },
+  { id: "problem-doing", label: "Something I'm doing...", category: "problems", keywords: [] },
+  { id: "problem-sensory", label: "Sensory", category: "problems", keywords: [] },
+  { id: "problem-feeling", label: "Feeling", category: "problems", keywords: [] },
+
+  // ---- Something happened to my stuff ----
+  { id: "stuff-lost", label: "Something got lost", category: "problems", parent: "problem-stuff", keywords: [] },
+  { id: "stuff-stuck", label: "Something is stuck", category: "problems", parent: "problem-stuff", keywords: [] },
+  { id: "stuff-broken", label: "Something is broken", category: "problems", parent: "problem-stuff", keywords: [] },
+  { id: "stuff-taken", label: "Someone took something", category: "problems", parent: "problem-stuff", keywords: [] },
+
+  // ---- Someone was mean ----
+  { id: "mean-hurt-me", label: "Someone hurt me", category: "problems", parent: "problem-mean", keywords: [] },
+  { id: "mean-screamed", label: "Someone screamed at me", category: "problems", parent: "problem-mean", keywords: [] },
+  { id: "mean-said-mean", label: "Someone said something mean", category: "problems", parent: "problem-mean", keywords: [] },
+  { id: "mean-scared-me", label: "Someone scared me", category: "problems", parent: "problem-mean", keywords: [] },
+  { id: "mean-blamed", label: "Someone blamed me", category: "problems", parent: "problem-mean", keywords: [] },
+
+  // ---- I got hurt ----
+  { id: "hurt-fell", label: "I fell", category: "problems", parent: "problem-got-hurt", keywords: [] },
+  { id: "hurt-bumped", label: "I bumped into something", category: "problems", parent: "problem-got-hurt", keywords: [] },
+  { id: "hurt-hit-me", label: "Something hit me", category: "problems", parent: "problem-got-hurt", keywords: [] },
+  { id: "hurt-fell-on-me", label: "Something fell on me", category: "problems", parent: "problem-got-hurt", keywords: [] },
+  { id: "hurt-dont-know", label: "I don't know how", category: "problems", parent: "problem-got-hurt", keywords: [] },
+
+  // ---- Something hurts ----
+  { id: "ache-head", label: "My head hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-face", label: "My face hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-chest", label: "My chest hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-tummy", label: "My tummy hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-back", label: "My back hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-arm", label: "My arm hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+  { id: "ache-leg", label: "My leg hurts", category: "problems", parent: "problem-hurts", keywords: [] },
+
+  // ---- Don't want to... ----
+  { id: "dont-stop", label: "Stop", category: "problems", parent: "problem-dont-want", keywords: [] },
+  { id: "dont-leave", label: "Leave", category: "problems", parent: "problem-dont-want", keywords: [] },
+  { id: "dont-wait", label: "Wait", category: "problems", parent: "problem-dont-want", keywords: [] },
+  { id: "dont-do-task", label: "Do a task", category: "problems", parent: "problem-dont-want", keywords: [] },
+  { id: "dont-change-plans", label: "Change plans", category: "problems", parent: "problem-dont-want", keywords: [] },
+
+  // ---- Want to... ----
+  { id: "want-stop", label: "Stop", category: "problems", parent: "problem-want", keywords: [] },
+  { id: "want-alone", label: "Be alone", category: "problems", parent: "problem-want", keywords: [] },
+  { id: "want-more-time", label: "Have more time", category: "problems", parent: "problem-want", keywords: [] },
+
+  // ---- Something I'm doing... ----
+  { id: "doing-too-hard", label: "Is too hard", category: "problems", parent: "problem-doing", keywords: [] },
+  { id: "doing-went-wrong", label: "Went wrong", category: "problems", parent: "problem-doing", keywords: [] },
+  { id: "doing-didnt-work", label: "Didn't work", category: "problems", parent: "problem-doing", keywords: [] },
+
+  // ---- Sensory ----
+  { id: "sense-noise", label: "Bad noise", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-smell", label: "Bad smell", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-touch", label: "Bad touch", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-bright", label: "Too bright", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-cold", label: "Too cold", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-hot", label: "Too hot", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-itchy", label: "Itchy", category: "problems", parent: "problem-sensory", keywords: [] },
+  { id: "sense-crowd", label: "Too many people", category: "problems", parent: "problem-sensory", keywords: [] },
+
+  // ---- Feeling ----
+  { id: "feel-worried", label: "Worried", category: "problems", parent: "problem-feeling", keywords: [] },
+  { id: "feel-scared", label: "Scared", category: "problems", parent: "problem-feeling", keywords: [] },
+  { id: "feel-upset", label: "Upset", category: "problems", parent: "problem-feeling", keywords: [] },
+  { id: "feel-angry", label: "Angry", category: "problems", parent: "problem-feeling", keywords: [] },
+  { id: "feel-rushed", label: "Rushed", category: "problems", parent: "problem-feeling", keywords: [] },
+  { id: "feel-confused", label: "Confused", category: "problems", parent: "problem-feeling", keywords: [] },
+
+  // ===========================================================================
+  // FLAT CARDS: all other categories
+  // ---------------------------------------------------------------------------
   {
      id: "apple",
      label: "Apple",
