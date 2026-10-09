@@ -68,6 +68,16 @@ export const STRINGS = {
     "parent.cancelConfirm": "Cancel this question? Your child will no longer see it.",
     "parent.deleteConfirm": "Delete this question from the history? Your child will no longer see it in their answers either.",
     "parent.deleted": "Deleted.",
+    
+    // ---- "What's wrong?" check-in ----
+    "parent.whatsWrong": "What's wrong?",
+    "parent.whatsWrongWaiting": "What's wrong? (waiting for an answer)",
+    "parent.whatsWrongNoKid": "What's wrong? (no child paired yet)",
+    "parent.checkin": "Check-in",
+    "checkin.question": "What's wrong?",
+    "checkin.breadcrumb": "← {label}",
+    "checkin.hintDoorway": "Tap what is wrong",
+    "checkin.hintLeaf": "Tap the one that fits, then tap Done",
     "parent.duplicate": "Duplicate",
     "parent.nudged": "Nudged {count}×",
     "parent.chose": "Chose:",
