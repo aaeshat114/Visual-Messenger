@@ -8,6 +8,8 @@
 //     emoji        always "" (premade pictures are SVGs)
 //     imageRef     always null (the picture is not stored in Firestore)
 //     imageData    the SVG as a ready-to-use data URL: "data:image/svg+xml;base64,..."
+//     category     a LIST of category ids, e.g. ["food", "snack"]. In cards-data.js you may write
+//                  one name ("food") or a list; here it is always a list.
 //     parent       the id of the doorway card this card belongs to, or null.
 //                  Only the "What's wrong?" check-in reads this; the normal composer ignores it.
 //     placeholder  true when the card has no svg yet and shows a grey question-mark picture
@@ -31,6 +33,24 @@ const PLACEHOLDER_SVG =
   '<rect x="2" y="2" width="20" height="20" rx="6" fill="#E9E4F5"/>' +
   '<path d="M9.5 9.6a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.7" fill="none" stroke="#8B6CD6" stroke-width="1.8" stroke-linecap="round"/>' +
   '<circle cx="12" cy="17" r="1.1" fill="#8B6CD6"/></svg>';
+
+// ---------------------------------------------------------------------------
+// Categories: a card can be in several at once
+// ---------------------------------------------------------------------------
+
+// All category ids of any card, premade or your own, as a list.
+// A card's `category` may be a single name (older cards, or one name in cards-data.js) or a list.
+// Every card of yours is always in "custom", whatever it says.
+//
+//   categoriesOf({ category: "food" })                       -> ["food"]
+//   categoriesOf({ category: ["food", "snack"], builtIn: true }) -> ["food", "snack"]
+//   categoriesOf({ category: "food", builtIn: false })       -> ["custom", "food"]
+export function categoriesOf(card) {
+  const raw = Array.isArray(card.category) ? card.category : (card.category ? [card.category] : []);
+  const list = raw.filter((c) => typeof c === "string" && c);
+  if (!card.builtIn && !list.includes("custom")) list.unshift("custom");
+  return list;
+}
 
 // ---------------------------------------------------------------------------
 // Turning your SVG code into a picture the browser can draw
@@ -86,6 +106,10 @@ function buildCards() {
       console.warn(`[premade cards] ${where} is ${Math.round(bytes / 1024)} KB. Large pictures make questions heavy; consider shrinking it at svgomg.net.`);
     }
 
+    // category: one name or a list of names; always stored here as a list.
+    const category = (Array.isArray(raw.category) ? raw.category : [raw.category])
+      .filter((c) => typeof c === "string" && c);
+
     seen.add(raw.id);
     draft.push({
       id: raw.id,
@@ -95,14 +119,15 @@ function buildCards() {
       imageData: svgToDataUrl(svg),
       placeholder: !hasSvg,
       keywords: (raw.keywords || []).map((k) => String(k).toLowerCase()),
-      category: raw.category || "",
+      category,
       parent: typeof raw.parent === "string" && raw.parent ? raw.parent : null,
       builtIn: true,
     });
   });
 
   // ---- Check the parent links (only the "What's wrong?" check-in uses them) ----
-  // A card with a parent is a leaf, its parent is a doorway. Only two levels are allowed.
+  // A card with a parent is a leaf, its parent is a doorway. Only two levels are allowed, and a leaf
+  // must share at least one category with its doorway.
   // A bad link is ignored (with a message in the console), so it can never affect the normal composer.
   const byId = new Map(draft.map((c) => [c.id, c]));
   const originalParent = new Map(draft.map((c) => [c.id, c.parent]));
@@ -111,7 +136,7 @@ function buildCards() {
     const parent = byId.get(card.parent);
     let problem = null;
     if (!parent) problem = `its parent "${card.parent}" does not exist`;
-    else if (parent.category !== card.category) problem = `its parent "${card.parent}" is in a different category`;
+    else if (!parent.category.some((c) => card.category.includes(c))) problem = `its parent "${card.parent}" has no category in common with it`;
     else if (originalParent.get(parent.id)) problem = `its parent "${card.parent}" is itself a leaf (only two levels are allowed)`;
     if (problem) {
       console.warn(`[premade cards] Ignored the parent of card "${card.id}": ${problem}.`);
@@ -122,12 +147,16 @@ function buildCards() {
   // Every Problems card should be a doorway (has children) or a leaf (has a parent).
   const hasChildren = new Set(draft.filter((c) => c.parent).map((c) => c.parent));
   for (const card of draft) {
-    if (card.category === CHECKIN_CATEGORY && !card.parent && !hasChildren.has(card.id)) {
+    if (card.category.includes(CHECKIN_CATEGORY) && !card.parent && !hasChildren.has(card.id)) {
       console.warn(`[premade cards] Card "${card.id}" is in the Problems category but is neither a doorway nor a leaf, so the check-in will skip it.`);
     }
   }
 
-  return Object.freeze(draft.map((c) => Object.freeze({ ...c, keywords: Object.freeze(c.keywords) })));
+  return Object.freeze(draft.map((c) => Object.freeze({
+    ...c,
+    keywords: Object.freeze(c.keywords),
+    category: Object.freeze(c.category),
+  })));
 }
 
 export const BUILTIN_CARDS = buildCards();
@@ -158,7 +187,7 @@ export function getBuiltinCard(id) {
 //   [ { card: <doorway card>, children: [ <leaf card>, ... ] }, ... ]
 // A doorway is a Problems card that has at least one leaf. Nothing else in the app uses this.
 export function getCheckinTree() {
-  const problems = BUILTIN_CARDS.filter((c) => c.category === CHECKIN_CATEGORY);
+  const problems = BUILTIN_CARDS.filter((c) => categoriesOf(c).includes(CHECKIN_CATEGORY));
   const childrenOf = new Map();
   for (const card of problems) {
     if (!card.parent) continue;
@@ -185,15 +214,16 @@ function normalize(text) {
 // caller can pass [...ownCards, ...BUILTIN_CARDS].
 //
 //   searchCards(cards, "pizza")             -> cards whose label/keyword contains "pizza"
-//   searchCards(cards, "ice cr", "food")    -> only the food category
+//   searchCards(cards, "ice cr", "food")    -> only cards that are in the food category
 //
+// A card in several categories shows up under each of them.
 // Every word the user typed must match somewhere in the label or keywords,
 // so "ice cold" finds a card tagged "ice" and "cold" even if not adjacent.
 export function searchCards(cards, query = "", category = "all") {
   const words = normalize(query).split(/\s+/).filter(Boolean);
 
   return cards.filter((c) => {
-    if (category !== "all" && c.category !== category) return false;
+    if (category !== "all" && !categoriesOf(c).includes(category)) return false;
     if (words.length === 0) return true;
 
     // Search the translated label, the original label and all keywords.
