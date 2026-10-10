@@ -641,3 +641,17 @@ img[src^="data:image/svg"] { object-fit: contain !important; }
   transition: transform var(--t-fast) ease;
 }
 .kid-breadcrumb:active { transform: scale(0.98); }
+
+
+/* ========== 11. Composer filters ========== */
+
+/* The category buttons under the card-name box in the composer: one row that scrolls sideways,
+   so a long list of categories doesn't push the cards off the screen. The buttons themselves use the
+   same .filter-btn look as the library. */
+.filters--scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+.filters--scroll .filter-btn { flex: 0 0 auto; white-space: nowrap; }
