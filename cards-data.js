@@ -25,11 +25,16 @@
 // The button text comes from i18n.js ("category.<id>"); if there is no entry there,
 // the id is shown with a capital letter.
 export const PREMADE_CATEGORIES = [
-   "problems",
    "food",
    "activity",
    "place",
-   "other"
+   "people",
+   "clothes",
+   "color",
+   "tools",
+   "feelings",
+   "other",
+   "problems"
 ];
 
 export const PREMADE_CARDS = [
