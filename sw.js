@@ -18,7 +18,7 @@
 // Cache-first means that without a new version, devices keep serving old copies.
 // ---------------------------------------------------------------------------
 
-const CACHE_VERSION = "v17.1";
+const CACHE_VERSION = "v17.2";
 const CACHE_NAME = "vm-shell-" + CACHE_VERSION;
 
 // Paths are relative to THIS file, so they resolve correctly from any GitHub
