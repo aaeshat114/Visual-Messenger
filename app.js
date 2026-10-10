@@ -593,6 +593,7 @@ function openCompose(prefill) {
   c.options = [];
   c.allowMultiple = false;
   c.somethingElse = false;
+  c.filter = "all";
   c.draftImage = null;
 
   // Who gets the question: everyone by default; when duplicating, the same kid(s) as before.
@@ -619,6 +620,7 @@ function openCompose(prefill) {
   $("compose-error").hidden = true;
   setSending(false);
   showScreen("compose");
+  renderComposeFilters();
   renderRecipients();
   renderChips();
   renderResults();
@@ -721,13 +723,43 @@ function renderChips() {
   $("compose-chips").replaceChildren(fragment);
 }
 
-// Cards matching what was typed in the card-name box: the family's own cards first, then the premade set.
-// Every premade card shows up here, Problems cards included, and behaves like any other card.
+// The category buttons above the cards in the composer: All, your categories, then Custom.
+// Tapping one limits the cards to that category. It works together with the name typed above it.
+// The buttons are built once, when the composer opens. A tap only changes which one is highlighted,
+// so the sideways-scrolling row keeps its place.
+function renderComposeFilters() {
+  const c = state.compose;
+  const box = $("compose-filters");
+  const fragment = document.createDocumentFragment();
+  for (const category of ["all", ...BUILTIN_CATEGORIES, "custom"]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-btn";                      // same look as the library's filter buttons
+    button.dataset.category = category;
+    button.textContent = category === "all" ? t("library.allCategories") : categoryName(category);
+    button.setAttribute("aria-pressed", String(category === c.filter));
+    button.addEventListener("click", () => {
+      c.filter = category;
+      for (const b of box.children) b.setAttribute("aria-pressed", String(b.dataset.category === category));
+      renderResults();
+    });
+    fragment.appendChild(button);
+  }
+  box.replaceChildren(fragment);
+}
+
+// Cards matching what was typed in the card-name box and the chosen filter: the family's own cards
+// first, then the premade set. Every premade card shows up here, Problems cards included, and
+// behaves like any other card.
 function renderResults() {
+  const c = state.compose;
+  const query = $("compose-search").value;
   const all = [...state.cards, ...BUILTIN_CARDS];
-  const found = searchCards(all, $("compose-search").value, "all");
-  const shown = found.slice(0, 60);                            // keeps the page quick; typing narrows it
-  const chosenKeys = new Set(state.compose.options.map((o) => o.key));
+  const found = searchCards(all, query, c.filter || "all");
+  // A short list when nothing is typed or filtered. With a filter or a name, more, so a category isn't cut off.
+  const narrowed = (c.filter && c.filter !== "all") || query.trim() !== "";
+  const shown = found.slice(0, narrowed ? 300 : 60);
+  const chosenKeys = new Set(c.options.map((o) => o.key));
 
   const fragment = document.createDocumentFragment();
   for (const card of shown) {
@@ -742,7 +774,8 @@ function renderResults() {
     fragment.appendChild(tile);
   }
   $("compose-results").replaceChildren(fragment);
-  $("compose-no-results").hidden = shown.length > 0;
+  // "No card with that name yet" only makes sense once something has been typed.
+  $("compose-no-results").hidden = shown.length > 0 || query.trim() === "";
 }
 
 async function sendQuestion() {
