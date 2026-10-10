@@ -655,3 +655,21 @@ img[src^="data:image/svg"] { object-fit: contain !important; }
   -webkit-overflow-scrolling: touch;
 }
 .filters--scroll .filter-btn { flex: 0 0 auto; white-space: nowrap; }
+
+
+/* ========== 12. Scrollable card list in the composer ========== */
+
+/* The cards in the composer scroll inside their own box, so the Send button stays within reach
+   instead of being pushed far down the page. To make the box taller or shorter, change 40vh
+   (vh is a percentage of the screen height). */
+#compose-results {
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;                          /* room for the tiles' shadows and press effect, which would be clipped otherwise */
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.6);
+}
+/* When nothing matches, there is no empty box. */
+#compose-results:empty { display: none; }
