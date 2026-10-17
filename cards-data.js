@@ -219,9 +219,8 @@ export const PREMADE_CARDS = [
 
 // ---- PLACE ----
 
-{ id: "home", label: "Home", category: ["place"], parent: "", keywords: ["indoor", "house"], svg: `` },
-{ id: "boys-room", label: "Boys' room", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
-{ id: "munis-room", label: "Muni's room", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
+{ id: "home", label: "Home", category: ["place"], parent: "", keywords: ["indoor", "house"], svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 639 551"><path fill="#bcc09f" fill-rule="evenodd" d="M90 550h461c22 0 40-16 40-35V168c0-19-18-35-40-35H90c-22 0-40 16-40 35v347c0 19 18 35 40 35"/><path fill="#c7765a" fill-rule="evenodd" d="m601 269 4 1c20 0 35-19 34-41v-44c0-22-14-39-32-41L324 1h-9L32 144c-18 1-32 19-32 41v44c0 23 16 41 35 41l4-1 281-123z"/><path fill="#a97f54" fill-rule="evenodd" d="M261 551h139q10-1 10-11V374c0-20-16-34-36-34h-87c-21 0-36 15-36 34v167q1 10 10 10"/></svg>` },
+{ id: "kids-room", label: "Kids room", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
 { id: "parents-bedroom", label: "Parents' bedroom", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
 { id: "living-room", label: "Living room", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
 { id: "kitchen", label: "Kitchen", category: ["place"], parent: "", keywords: ["indoor"], svg: `` },
